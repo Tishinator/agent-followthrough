@@ -11,3 +11,11 @@ This project contains the initial SLC-style planning package for review:
 - Verification & Validation Plan
 
 Generated review PDFs are placed in `pdf/`.
+
+## CI
+
+This repo uses Gitea Actions with the local `linux` runner.
+
+Current jobs:
+- `node-test` — unit/integration suite
+- `e2e-smoke` — end-to-end validation script (`test/e2e.sh --skip-restart`)

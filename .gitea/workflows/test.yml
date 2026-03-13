@@ -1,0 +1,45 @@
+name: test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  node-test:
+    runs-on: linux
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit/integration tests
+        run: node --test test/db.test.js test/watchdog.test.js test/emitter.test.js test/cli.test.js test/concurrency.test.js
+
+  e2e-smoke:
+    runs-on: linux
+    needs: node-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run end-to-end validation
+        run: bash test/e2e.sh --skip-restart

@@ -1,0 +1,21 @@
+{
+  "name": "agent-follow-up",
+  "version": "1.0.0",
+  "description": "Proactive task follow-up system backed by OpenClaw cron and SQLite",
+  "main": "src/cli.js",
+  "bin": {
+    "agent-follow-up": "src/cli.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "watchdog": "node src/watchdog.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

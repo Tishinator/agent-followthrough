@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Agent Follow-Up - Design Rev 3</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.45} h1,h2,h3{color:#123} pre{background:#f6f6f6;padding:12px;border:1px solid #ddd;white-space:pre-wrap}</style></head><body><h1>Design - Revision 3</h1><h2>1. Storage Model</h2><pre>tasks(
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  owner_session_uuid TEXT,
+  notify_target TEXT,
+  observable_type TEXT,
+  observable_id TEXT,
+  checkin_every_minutes INTEGER,
+  started_at TEXT,
+  last_observed_at TEXT,
+  last_observed_status TEXT,
+  observation_source TEXT,
+  last_notification_sent_at TEXT,
+  last_notification_status TEXT,
+  resolution_status TEXT,
+  resolution_at TEXT
+)
+
+task_events(
+  id INTEGER PRIMARY KEY,
+  task_id TEXT,
+  event_type TEXT,
+  observed_status TEXT,
+  message TEXT,
+  created_at TEXT
+)
+</pre><h2>2. Key Design Clarifications</h2><ul><li><strong>last_observed_status</strong> = latest non-terminal observed state from the watchdog.</li><li><strong>resolution_status</strong> = confirmed terminal outcome used to close the task (e.g. completed, failed).</li></ul><h2>3. Observable Identity for Process Tasks</h2><p>Phase 1 shall not use a raw PID as the primary observable identity.</p><p>Preferred pattern:</p><ul><li><code>observable_type = marker</code></li><li><code>observable_id = /absolute/path/to/task-marker.json</code></li></ul><p>The observed process owns and updates the marker file. PID may be stored as secondary evidence but not as the primary identity.</p><h2>4. Watchdog Logic</h2><ol><li>Load active tasks from SQLite.</li><li>Inspect observation source.</li><li>Compute current observed state.</li><li>Apply unknown threshold (default 2 cycles).</li><li>Apply notification suppression rules.</li><li>Emit via <code>openclaw message send</code> if due.</li><li>Write event row and updated task state transactionally.</li></ol><h2>5. Deterministic Templates</h2><p>Phase 1 notification messages use templates rather than LLM generation, e.g.:</p><pre>[Agent Follow-Up] Task still running: Projects page refactor.
+Observed status: running.
+Last observed: 2026-03-13T21:00:00Z.
+Next update cadence: 3m.
+</pre></body></html>

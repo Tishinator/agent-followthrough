@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Agent Follow-Up - Design</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.45} h1,h2,h3{color:#123} pre{background:#f6f6f6;padding:12px;border:1px solid #ddd;white-space:pre-wrap}</style></head><body>
+<h1>Design</h1>
+<h2>1. Proposed Data Model</h2>
+<pre>{
+  "tasks": [
+    {
+      "id": "bg-20260313-001",
+      "title": "Projects page refactor",
+      "ownerSession": "agent:main:telegram:direct:...",
+      "taskType": "delegated-process",
+      "startedAt": "2026-03-13T21:00:00Z",
+      "checkinEveryMinutes": 3,
+      "lastCheckinAt": null,
+      "lastObservedStatus": "running",
+      "notifyTarget": {
+        "chat": "telegram:8625301893"
+      },
+      "process": {
+        "kind": "exec",
+        "sessionId": "oceanic-sage"
+      },
+      "resolution": null
+    }
+  ]
+}</pre>
+<h2>2. Watchdog Decision Logic</h2>
+<ol>
+<li>Load active tasks.</li>
+<li>For each task, inspect current state from the best available source:</li>
+<ul>
+<li>exec/process status</li>
+<li>OpenClaw session/subagent status</li>
+<li>known completion markers</li>
+</ul>
+<li>If completed or failed, send a final update and mark resolved.</li>
+<li>If still running and overdue for check-in, send a progress update and refresh <code>lastCheckinAt</code>.</li>
+<li>If observation is inconclusive, send a degraded-status update only if overdue.</li>
+</ol>
+<h2>3. Notification Rules</h2>
+<ul>
+<li>Completion: immediate</li>
+<li>Failure/blocker: immediate</li>
+<li>Running/overdue: every configured interval, default 2–3 minutes</li>
+<li>No duplicate updates if status is unchanged and interval has not elapsed</li>
+</ul>
+<h2>4. Proof Strategy by Design</h2>
+<ul>
+<li>Registry file proves tracked tasks exist.</li>
+<li>Scheduler logs prove checks actually executed.</li>
+<li>Message/update logs prove follow-up notifications were sent.</li>
+<li>State transitions prove completion/failure handling.</li>
+</ul>
+</body></html>

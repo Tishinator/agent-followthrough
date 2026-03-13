@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Agent Follow-Up - Verification & Validation Plan</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.45} h1,h2,h3{color:#123} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:8px;vertical-align:top}</style></head><body>
+<h1>Verification &amp; Validation Plan</h1>
+<h2>1. Verification Objectives</h2>
+<ul>
+<li>Prove the scheduler actually runs.</li>
+<li>Prove tracked tasks are persisted durably.</li>
+<li>Prove overdue/completion/failure notifications are emitted under the right conditions.</li>
+<li>Prove duplicate notifications are suppressed appropriately.</li>
+</ul>
+<h2>2. Verification Methods</h2>
+<table>
+<tr><th>Area</th><th>Method</th><th>Evidence</th></tr>
+<tr><td>Registry writes</td><td>File inspection</td><td>JSON contents, timestamps</td></tr>
+<tr><td>Checker execution</td><td>Scheduler logs</td><td>cron/systemd logs, timestamps</td></tr>
+<tr><td>Status transitions</td><td>Controlled task fixtures</td><td>before/after registry state</td></tr>
+<tr><td>Notifications</td><td>OpenClaw message evidence</td><td>sent-message log, target session/chat</td></tr>
+<tr><td>Failure handling</td><td>Simulated failed process/session</td><td>failure update and resolved state</td></tr>
+</table>
+<h2>3. Validation Scenarios</h2>
+<ol>
+<li>Task starts and finishes before next scheduled reminder.</li>
+<li>Task remains active long enough to trigger one or more progress reminders.</li>
+<li>Task fails and sends an immediate failure update.</li>
+<li>Task becomes unobservable and emits an honest degraded-status update.</li>
+<li>System restarts and still remembers active tracked tasks.</li>
+</ol>
+<h2>4. Proof Package Expectations</h2>
+<p>For implementation phases, proof should include:</p>
+<ul>
+<li>commands run</li>
+<li>state file snapshots</li>
+<li>scheduler/service logs</li>
+<li>message routing evidence</li>
+<li>before/after task state</li>
+<li>test results for non-trivial logic</li>
+</ul>
+<h2>5. Validation Exit Criteria</h2>
+<ul>
+<li>At least one completion case proven</li>
+<li>At least one overdue reminder case proven</li>
+<li>At least one failure case proven</li>
+<li>At least one restart/persistence case proven</li>
+<li>No false completion claim in any tested scenario</li>
+</ul>
+</body></html>

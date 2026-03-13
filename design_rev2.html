@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Agent Follow-Up - Design Rev 2</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.45} h1,h2,h3{color:#123} pre{background:#f6f6f6;padding:12px;border:1px solid #ddd;white-space:pre-wrap}</style></head><body><h1>Design - Revision 2</h1><h2>1. Storage Model</h2><p>Use SQLite, not JSON, for Phase 1.</p><h3>Core Tables</h3><pre>tasks(
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  owner_session TEXT,
+  notify_target TEXT,
+  observable_type TEXT,
+  observable_id TEXT,
+  checkin_every_minutes INTEGER,
+  started_at TEXT,
+  last_observed_at TEXT,
+  last_observed_status TEXT,
+  observation_source TEXT,
+  last_notification_sent_at TEXT,
+  last_notification_status TEXT,
+  resolution_status TEXT,
+  resolution_at TEXT
+)
+
+task_events(
+  id INTEGER PRIMARY KEY,
+  task_id TEXT,
+  event_type TEXT,
+  observed_status TEXT,
+  message TEXT,
+  created_at TEXT
+)
+</pre><h2>2. Concurrency Model</h2><ul><li>Single SQLite database file under a dedicated state path, not under <code>memory/</code>.</li><li>All writes are transactional.</li><li>Watchdog and registration logic use short explicit transactions.</li><li>No multi-process shared JSON mutation.</li></ul><h2>3. State Definitions</h2><ul><li><strong>running</strong>: active source confirms task is still live</li><li><strong>completed</strong>: terminal success signal observed</li><li><strong>failed</strong>: terminal failure signal observed</li><li><strong>stale</strong>: still running but overdue for operator update</li><li><strong>unknown</strong>: no longer confidently observable, no terminal outcome proven</li></ul><h2>4. Notification Logic</h2><ul><li>completion -> send immediately once</li><li>failure -> send immediately once</li><li>stale/running -> send only when interval elapsed and notification state changed or is due</li><li>unknown -> send degraded-status notice when unknown threshold is crossed</li></ul><h2>5. Design Constraint</h2><p>Phase 1 notification and evaluation logic shall be deterministic and template-based. No routine LLM invocation is required or assumed.</p></body></html>

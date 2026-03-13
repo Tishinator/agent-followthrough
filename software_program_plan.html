@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Agent Follow-Up - Software Program Plan</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.45;color:#111} h1,h2,h3{color:#123} code{background:#f4f4f4;padding:1px 4px} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:8px;vertical-align:top}</style></head><body>
+<h1>Agent Follow-Up - Software Program Plan</h1>
+<p><strong>Date:</strong> 2026-03-13<br><strong>Project Directory:</strong> <code>/home/tish/projects/agent-follow-up</code></p>
+<h2>1. Purpose</h2>
+<p>Define a realistic, automatable system that ensures OpenClaw agents provide proactive follow-up updates for delegated or background work, instead of depending on memory or manual operator prompting.</p>
+<h2>2. Problem Statement</h2>
+<p>Current behavior depends on the active agent remembering to check back in. That is not reliable enough to support trust. We need a machine-enforced mechanism that tracks background work and sends follow-ups on completion, failure, or overdue intervals.</p>
+<h2>3. Program Goals</h2>
+<ul>
+<li>Guarantee follow-up behavior through automation rather than agent intention.</li>
+<li>Integrate cleanly with OpenClaw sessions, spawned background work, and local processes.</li>
+<li>Support milestone, blocker, overdue, and completion notifications.</li>
+<li>Preserve a provable audit trail of tracked tasks and emitted updates.</li>
+</ul>
+<h2>4. Deliverables for Phase 1</h2>
+<ul>
+<li>Task registry format and storage model.</li>
+<li>Background-check watchdog script/service design.</li>
+<li>Notification decision rules.</li>
+<li>Verification and validation strategy.</li>
+<li>Initial SLC documentation set (this package).</li>
+</ul>
+<h2>5. Scope</h2>
+<h3>In Scope</h3>
+<ul>
+<li>Tracking delegated/background tasks started by an OpenClaw agent.</li>
+<li>Polling active task state on a scheduler.</li>
+<li>Sending proactive updates when tasks are overdue, blocked, completed, or failed.</li>
+<li>OpenClaw-friendly local implementation on this VM.</li>
+</ul>
+<h3>Out of Scope (Phase 1)</h3>
+<ul>
+<li>Perfect semantic progress extraction from all tools.</li>
+<li>Cross-machine orchestration.</li>
+<li>Guaranteed recovery from every external messaging outage.</li>
+<li>Complex multi-tenant scheduling.</li>
+</ul>
+<h2>6. Implementation Strategy</h2>
+<ol>
+<li>Create a durable task registry (JSON file) under the OpenClaw workspace.</li>
+<li>Create a watchdog/checker that reads the registry, inspects tracked tasks, and decides whether to notify.</li>
+<li>Run the checker on a regular cadence using a scheduler (prefer cron or systemd timer).</li>
+<li>Record follow-up events and task resolution back into durable state.</li>
+<li>Later: expose tracked tasks in the Ops Dashboard.</li>
+</ol>
+<h2>7. Key Planning Decision</h2>
+<p><strong>Recommended technical direction:</strong> use a scheduler-backed watchdog with a durable task registry. Do not rely on heartbeat alone and do not rely on agent memory.</p>
+<h2>8. Success Criteria</h2>
+<ul>
+<li>When background work is registered, the system issues an update without Tish asking.</li>
+<li>Completion and failure updates are generated automatically when observable.</li>
+<li>Overdue tasks generate periodic status reminders at the configured cadence.</li>
+<li>The system behavior is provable through logs, state files, and real notifications.</li>
+</ul>
+</body></html>

@@ -1,0 +1,19 @@
+Registered task: e2e-suppress-1773442365
+{
+  "id": "e2e-suppress-1773442365",
+  "title": "E2E Suppression Test",
+  "owner_session_uuid": null,
+  "notify_target": "telegram:8625301893",
+  "observable_type": "marker",
+  "observable_id": "/tmp/e2e-suppress-1773442365.marker.json",
+  "checkin_every_minutes": 3,
+  "started_at": "2026-03-13T22:52:45.969Z",
+  "last_observed_at": null,
+  "last_observed_status": "running",
+  "observation_source": null,
+  "last_notification_sent_at": null,
+  "last_notification_status": null,
+  "resolution_status": null,
+  "resolution_at": null,
+  "unknown_cycle_count": 0
+}

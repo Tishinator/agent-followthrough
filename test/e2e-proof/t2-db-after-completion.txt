@@ -1,0 +1,1 @@
+e2e-completion-1773442345|E2E Completion Test||telegram:8625301893|marker|/tmp/e2e-completion-1773442345.marker.json|3|2026-03-13T22:52:25.367Z|2026-03-13T22:52:30.739Z|completed|/tmp/e2e-completion-1773442345.marker.json|2026-03-13T22:52:30.739Z|sent|completed|2026-03-13T22:52:30.739Z|0

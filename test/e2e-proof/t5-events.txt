@@ -1,0 +1,6 @@
+69|e2e-suppress-1773442365|registered|running|Registered: type=marker observable=/tmp/e2e-suppress-1773442365.marker.json target=telegram:8625301893|2026-03-13T22:52:45.973Z
+74|e2e-suppress-1773442365|observation|running||2026-03-13T22:52:46.020Z
+75|e2e-suppress-1773442365|notification|running|emitter=ok: [telegram] autoSelectFamily=true (default-node22)
+[telegram] dnsResultOrder=ipv4first (default-node22)
+✅ Sent via Telegram. Message ID: 549|2026-03-13T22:52:51.141Z
+80|e2e-suppress-1773442365|observation|running||2026-03-13T22:52:51.190Z

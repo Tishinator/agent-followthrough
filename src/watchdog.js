@@ -6,6 +6,7 @@
  *
  * Observation logic:
  *   observable_type = "marker"   -> check marker file exists + mtime
+ *   observable_type = "session"  -> read ~/.openclaw/agents/main/sessions/sessions.json
  *   observable_type = "manual"   -> passive; only updated by CLI resolve
  *
  * State machine:
@@ -29,6 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const { openDb, getActiveTasks, updateTaskObservation, insertEvent } = require('./db');
 const emitter = require('./emitter');
+const { inspectSession, STALE_FACTOR } = require('./sessions');
 
 const UNKNOWN_THRESHOLD = 2;
 
@@ -69,27 +71,34 @@ function notificationDue(task, currentStatus) {
 
 /**
  * Run one watchdog cycle.
+ * @param {object} db
+ * @param {object} [opts]
+ * @param {string} [opts.sessionsPath] - override path to sessions.json (for tests)
  * Returns an array of result objects for observability/testing.
  */
-function runWatchdog(db) {
+function runWatchdog(db, opts = {}) {
   const tasks = getActiveTasks(db);
   const results = [];
 
   for (const task of tasks) {
-    const result = processTask(db, task);
+    const result = processTask(db, task, opts);
     results.push(result);
   }
 
   return results;
 }
 
-function processTask(db, task) {
+function processTask(db, task, opts = {}) {
   const now = new Date().toISOString();
   let observedStatus;
   let observationNote;
 
   if (task.observable_type === 'marker') {
     const inspection = inspectMarker(task);
+    observedStatus = inspection.status;
+    observationNote = inspection.reason || null;
+  } else if (task.observable_type === 'session') {
+    const inspection = inspectSession(task, { sessionsPath: opts.sessionsPath });
     observedStatus = inspection.status;
     observationNote = inspection.reason || null;
   } else if (task.observable_type === 'manual') {
@@ -199,4 +208,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { runWatchdog, processTask, inspectMarker, notificationDue, UNKNOWN_THRESHOLD };
+module.exports = { runWatchdog, processTask, inspectMarker, notificationDue, UNKNOWN_THRESHOLD, inspectSession, STALE_FACTOR };

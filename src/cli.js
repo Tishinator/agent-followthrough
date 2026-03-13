@@ -39,7 +39,7 @@ program
         process.exit(1);
       }
 
-      const validTypes = ['marker', 'manual'];
+      const validTypes = ['marker', 'manual', 'session'];
       if (!validTypes.includes(opts.observableType)) {
         console.error(`Error: --observable-type must be one of: ${validTypes.join(', ')}`);
         process.exit(1);

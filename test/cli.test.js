@@ -3,50 +3,52 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 
-function setupDb() {
+const CLI = path.join(__dirname, '..', 'src', 'cli.js');
+
+function makeTempDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'afu-cli-'));
-  const dbPath = path.join(dir, 'tasks.db');
-  execFileSync('node', ['bin/agent-follow-up.js', 'init-db', '--db', dbPath], {
-    cwd: path.join(__dirname, '..'), encoding: 'utf8'
-  });
-  return { dir, dbPath };
+  return { dir, dbPath: path.join(dir, 'tasks.db') };
+}
+
+function cli(args, opts = {}) {
+  return spawnSync('node', [CLI, ...args], { encoding: 'utf8', ...opts });
 }
 
 test('register then list shows the task', () => {
-  const { dir, dbPath } = setupDb();
+  const { dir, dbPath } = makeTempDb();
   const marker = path.join(dir, 'marker.json');
   fs.writeFileSync(marker, JSON.stringify({ status: 'running', updatedAt: new Date().toISOString() }));
 
-  execFileSync('node', ['bin/agent-follow-up.js', 'register', '--db', dbPath, '--id', 'cli-1', '--title', 'CLI Task', '--interval', '3', '--target', 'telegram:8625301893', '--observable-type', 'marker', '--observable-id', marker], {
-    cwd: path.join(__dirname, '..'), encoding: 'utf8'
-  });
+  const reg = cli(['register', '--db', dbPath, '--id', 'cli-1', '--title', 'CLI Task',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'marker', '--observable-id', marker]);
+  assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
 
-  const out = execFileSync('node', ['bin/agent-follow-up.js', 'list', '--db', dbPath], {
-    cwd: path.join(__dirname, '..'), encoding: 'utf8'
-  });
-  assert.match(out, /cli-1/);
-  assert.match(out, /CLI Task/);
+  const out = cli(['list', '--db', dbPath]);
+  assert.equal(out.status, 0, `list failed: ${out.stderr}`);
+  assert.match(out.stdout, /cli-1/);
+  assert.match(out.stdout, /CLI Task/);
 });
 
 test('duplicate register exits 1', () => {
-  const { dir, dbPath } = setupDb();
+  const { dir, dbPath } = makeTempDb();
   const marker = path.join(dir, 'marker.json');
   fs.writeFileSync(marker, JSON.stringify({ status: 'running', updatedAt: new Date().toISOString() }));
 
-  const args = ['bin/agent-follow-up.js', 'register', '--db', dbPath, '--id', 'dup-1', '--title', 'Dup Task', '--interval', '3', '--target', 'telegram:8625301893', '--observable-type', 'marker', '--observable-id', marker];
-  spawnSync('node', args, { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
-  const second = spawnSync('node', args, { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+  const args = ['register', '--db', dbPath, '--id', 'dup-1', '--title', 'Dup Task',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'marker', '--observable-id', marker];
+  cli(args); // first registration
+  const second = cli(args); // duplicate
   assert.equal(second.status, 1);
-  assert.match(second.stderr, /already exists|duplicate/i);
+  assert.match(second.stderr, /already registered/i);
 });
 
 test('resolve of unknown task exits 1', () => {
-  const { dbPath } = setupDb();
-  const result = spawnSync('node', ['bin/agent-follow-up.js', 'resolve', '--db', dbPath, '--id', 'missing', '--status', 'completed'], {
-    cwd: path.join(__dirname, '..'), encoding: 'utf8'
-  });
+  const { dbPath } = makeTempDb();
+  const result = cli(['resolve', '--db', dbPath, '--id', 'missing', '--status', 'completed']);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /not found|unknown/i);
+  assert.match(result.stderr, /not found/i);
 });

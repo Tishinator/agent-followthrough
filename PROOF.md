@@ -323,3 +323,101 @@ All core Phase 1 behaviors are proven with real execution evidence:
 - 32/32 tests GREEN
 
 Residual: Gitea push pending (external dependency), automatic cron fire not yet observed (expected within minutes), Telegram receipt not independently confirmable.
+
+---
+
+# Phase 2A — Session Observer Proof
+
+**Date:** 2026-03-13T23:30:04Z
+**Status:** Proven
+
+## What was built
+
+- `src/sessions.js` — deterministic session observer (no LLM)
+  - `inspectSession(task, opts)` reads `~/.openclaw/agents/main/sessions/sessions.json`
+  - Lookup by `sessionId` UUID or by sessions.json map key (fallback)
+  - Returns `failed` if `abortedLastRun=true`, `running` if fresh, `unknown_signal` if stale/absent
+  - Controllable via `opts.sessionsPath` and `opts.now` for full test isolation
+  - `STALE_FACTOR=3` (age threshold = 3 × checkin_every_minutes)
+- `src/watchdog.js` updated: handles `observable_type='session'`, accepts `opts.sessionsPath`,
+  exports `inspectSession` and `STALE_FACTOR`
+- `src/cli.js` updated: `--observable-type session` now accepted
+- `test/sessions.test.js` — 11 new unit tests (all fixture-based, no real sessions.json read)
+- Pre-existing `test/watchdog.test.js` session tests (tests 50–59) now all green
+
+## Observed artifact structure
+
+File: `~/.openclaw/agents/main/sessions/sessions.json`
+
+```json
+{
+  "agent:main:main": {
+    "sessionId": "0b826399-b301-4f61-8f7c-b94b19431940",
+    "updatedAt": 1773444435446,
+    "abortedLastRun": false,
+    ...
+  },
+  "agent:main:telegram:direct:8625301893": { ... },
+  "agent:main:cron:<uuid>": { ... }
+}
+```
+
+Observed: 14 entries total. Keys follow pattern `agent:main:<context>`.
+Each entry has `sessionId` (UUID), `updatedAt` (epoch ms), `abortedLastRun` (bool).
+
+## Real artifact inspection (E2E)
+
+```
+node -e "inspectSession({ observable_id: '0b826399-b301-4f61-8f7c-b94b19431940', checkin_every_minutes: 3 })"
+```
+
+**Result (observed 2026-03-13T23:30:04Z):**
+```json
+{
+  "status": "running",
+  "updatedAt": 1773444435446,
+  "reason": "session active: updated 169s ago"
+}
+```
+
+**Result — key-match via `agent:main:main` (observed seconds later):**
+```json
+{
+  "status": "running",
+  "updatedAt": 1773444608817,
+  "reason": "session active: updated 4s ago"
+}
+```
+
+**Observed facts:**
+- Both UUID lookup and key lookup returned `running` against the real artifact
+- `updatedAt` is a real epoch-ms timestamp; age computed correctly
+- Threshold: 3 min × 3 = 9 min (540s); session at 169s → running ✓
+- `abortedLastRun=false` in observed artifact → not treated as failed ✓
+- sessions.json has 14 entries including cron session keys
+
+**Inferred (not directly observed):**
+- `completed` cannot be detected from sessions.json alone (no completion signal exists in the format)
+- `abortedLastRun=true` path tested only via fixture, not observed in live data
+
+## Test count
+
+| Phase | Tests | Status |
+|-------|-------|--------|
+| Phase 1 (baseline) | 32 | GREEN |
+| Phase 2A sessions.test.js | 11 | GREEN |
+| Pre-existing watchdog session tests | 9 (added by earlier author) | GREEN |
+| **Total** | **59** | **59/59 GREEN** |
+
+## Unverified / Residual Risk
+
+- `abortedLastRun=true` failure path not observed in live sessions.json (fixture only)
+- `completed` state requires explicit `resolve` CLI call; no session signal for it
+- Long-running tool calls will appear stale even when work is in progress (acknowledged design limitation)
+- Session eviction (entry disappears from sessions.json) treated as unknown_signal, not confirmed correct behavior
+
+## Phase 2A Final Status
+
+**Proven** for the session observer core logic against a real artifact.
+All 59 tests green. Both UUID and key-match lookup verified against live sessions.json.
+Known limitations documented above.

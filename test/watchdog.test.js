@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { openDb, insertTask, getTask, getTaskEvents } = require('../src/db');
-const { runWatchdog, inspectMarker, notificationDue, UNKNOWN_THRESHOLD } = require('../src/watchdog');
+const { runWatchdog, inspectMarker, inspectSession, notificationDue, UNKNOWN_THRESHOLD, STALE_FACTOR } = require('../src/watchdog');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -340,5 +340,215 @@ test('watchdog processes multiple tasks in one cycle', () => {
   } finally {
     cleanup(db);
     restore();
+  }
+});
+
+// ─── inspectSession ───────────────────────────────────────────────────────────
+
+function writeSessionStore(p, sessions) {
+  fs.writeFileSync(p, JSON.stringify(sessions));
+}
+
+function mkTmpSessions(suffix = '') {
+  return path.join(os.tmpdir(), `test-sessions-${process.pid}-${Date.now()}${suffix}.json`);
+}
+
+const FRESH_UPDATED_AT = Date.now() - 5 * 1000; // 5s ago — very recent
+const OLD_UPDATED_AT   = Date.now() - 60 * 60 * 1000; // 1h ago — definitely stale
+
+test('STALE_FACTOR is exported as a positive number', () => {
+  assert.ok(typeof STALE_FACTOR === 'number' && STALE_FACTOR > 0);
+});
+
+test('inspectSession: sessions.json not readable -> unknown_signal', () => {
+  const r = inspectSession(
+    { observable_id: 'uuid-x', checkin_every_minutes: 3 },
+    { sessionsPath: '/tmp/no-such-sessions-file-xyzzy.json' }
+  );
+  assert.equal(r.status, 'unknown_signal');
+  assert.match(r.reason, /readable|read/i);
+});
+
+test('inspectSession: sessions.json malformed JSON -> unknown_signal', () => {
+  const p = mkTmpSessions('bad');
+  fs.writeFileSync(p, 'not-valid-json{{{');
+  const r = inspectSession(
+    { observable_id: 'uuid-x', checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'unknown_signal');
+  assert.match(r.reason, /parse/i);
+  fs.unlinkSync(p);
+});
+
+test('inspectSession: session UUID absent from store -> unknown_signal', () => {
+  const p = mkTmpSessions('absent');
+  writeSessionStore(p, {
+    'agent:main:other': { sessionId: 'aaaa-bbbb', updatedAt: FRESH_UPDATED_AT, abortedLastRun: false }
+  });
+  const r = inspectSession(
+    { observable_id: 'uuid-that-does-not-exist', checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'unknown_signal');
+  assert.match(r.reason, /not found/i);
+  fs.unlinkSync(p);
+});
+
+test('inspectSession: session UUID present, fresh updatedAt, no abort -> running', () => {
+  const p = mkTmpSessions('running');
+  const uuid = 'c989e785-a605-45ed-8348-f447f3ad13e9';
+  writeSessionStore(p, {
+    'agent:main:telegram': { sessionId: uuid, updatedAt: FRESH_UPDATED_AT, abortedLastRun: false }
+  });
+  const r = inspectSession(
+    { observable_id: uuid, checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'running');
+  assert.ok(r.updatedAt);
+  fs.unlinkSync(p);
+});
+
+test('inspectSession: session UUID present, old updatedAt, no abort -> unknown_signal', () => {
+  const p = mkTmpSessions('stale');
+  const uuid = 'dead-beef-0000-0000-0000-000000000000';
+  writeSessionStore(p, {
+    'agent:main:old': { sessionId: uuid, updatedAt: OLD_UPDATED_AT, abortedLastRun: false }
+  });
+  const r = inspectSession(
+    { observable_id: uuid, checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'unknown_signal');
+  assert.match(r.reason, /no update/i);
+  fs.unlinkSync(p);
+});
+
+test('inspectSession: abortedLastRun=true -> failed (even if fresh)', () => {
+  const p = mkTmpSessions('aborted');
+  const uuid = 'aborted-uuid-0000-0000-0000-0000000000';
+  writeSessionStore(p, {
+    'agent:main:aborted': { sessionId: uuid, updatedAt: FRESH_UPDATED_AT, abortedLastRun: true }
+  });
+  const r = inspectSession(
+    { observable_id: uuid, checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'failed');
+  assert.match(r.reason, /abort/i);
+  fs.unlinkSync(p);
+});
+
+test('inspectSession: session key match (not UUID) -> running', () => {
+  const p = mkTmpSessions('keyMatch');
+  const key = 'agent:main:cron:abc-123';
+  writeSessionStore(p, {
+    [key]: { sessionId: 'some-other-uuid', updatedAt: FRESH_UPDATED_AT, abortedLastRun: false }
+  });
+  // observable_id is the key, not the UUID
+  const r = inspectSession(
+    { observable_id: key, checkin_every_minutes: 3 },
+    { sessionsPath: p }
+  );
+  assert.equal(r.status, 'running');
+  fs.unlinkSync(p);
+});
+
+// ─── runWatchdog: session type integration ────────────────────────────────────
+
+test('watchdog observes session task as running when session is fresh', () => {
+  const restore = stubEmitter();
+  const db = makeDb();
+  const sessPath = mkTmpSessions('wd-run');
+  const uuid = 'session-running-uuid-0001';
+  try {
+    writeSessionStore(sessPath, {
+      'agent:main:test': { sessionId: uuid, updatedAt: Date.now() - 1000, abortedLastRun: false }
+    });
+    insertTask(db, {
+      id: 'sess-run-1', title: 'Session Running Task',
+      notify_target: 'telegram:999',
+      observable_type: 'session',
+      observable_id: uuid,
+      checkin_every_minutes: 3
+    });
+
+    const results = runWatchdog(db, { sessionsPath: sessPath });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].observedStatus, 'running');
+
+    const t = getTask(db, 'sess-run-1');
+    assert.equal(t.last_observed_status, 'running');
+    assert.equal(t.unknown_cycle_count, 0);
+  } finally {
+    cleanup(db);
+    restore();
+    if (fs.existsSync(sessPath)) fs.unlinkSync(sessPath);
+  }
+});
+
+test('watchdog resolves session task as failed when abortedLastRun=true', () => {
+  const restore = stubEmitter();
+  const db = makeDb();
+  const sessPath = mkTmpSessions('wd-abort');
+  const uuid = 'session-aborted-uuid-0002';
+  try {
+    writeSessionStore(sessPath, {
+      'agent:main:aborted': { sessionId: uuid, updatedAt: Date.now() - 1000, abortedLastRun: true }
+    });
+    insertTask(db, {
+      id: 'sess-abort-1', title: 'Session Aborted Task',
+      notify_target: 'telegram:999',
+      observable_type: 'session',
+      observable_id: uuid,
+      checkin_every_minutes: 3
+    });
+
+    const results = runWatchdog(db, { sessionsPath: sessPath });
+    assert.equal(results[0].observedStatus, 'failed');
+
+    const t = getTask(db, 'sess-abort-1');
+    assert.equal(t.resolution_status, 'failed');
+    assert.ok(t.resolution_at);
+  } finally {
+    cleanup(db);
+    restore();
+    if (fs.existsSync(sessPath)) fs.unlinkSync(sessPath);
+  }
+});
+
+test('watchdog transitions session task to stale then unknown when session absent', () => {
+  const restore = stubEmitter();
+  const db = makeDb();
+  const sessPath = mkTmpSessions('wd-absent');
+  try {
+    // Write a store with no matching session
+    writeSessionStore(sessPath, {
+      'agent:main:other': { sessionId: 'different-uuid', updatedAt: Date.now(), abortedLastRun: false }
+    });
+    insertTask(db, {
+      id: 'sess-absent-1', title: 'Session Absent Task',
+      notify_target: 'telegram:999',
+      observable_type: 'session',
+      observable_id: 'no-match-uuid',
+      checkin_every_minutes: 3
+    });
+
+    // Cycle 1 -> stale
+    runWatchdog(db, { sessionsPath: sessPath });
+    let t = getTask(db, 'sess-absent-1');
+    assert.equal(t.unknown_cycle_count, 1);
+    assert.equal(t.last_observed_status, 'stale');
+
+    // Cycle 2 -> unknown
+    runWatchdog(db, { sessionsPath: sessPath });
+    t = getTask(db, 'sess-absent-1');
+    assert.equal(t.unknown_cycle_count, 2);
+    assert.equal(t.last_observed_status, 'unknown');
+  } finally {
+    cleanup(db);
+    restore();
+    if (fs.existsSync(sessPath)) fs.unlinkSync(sessPath);
   }
 });

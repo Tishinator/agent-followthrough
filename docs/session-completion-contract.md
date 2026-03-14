@@ -111,11 +111,13 @@ Those may be useful as advisory hints later, but not as proof.
 If we want the smallest useful next slice, do this:
 
 1. document `resolve` as the required completion path for session tasks
-2. teach launcher/integration code to call `resolve` when work ends successfully
+2. teach launcher/integration code to resolve terminal worker exits deterministically
 3. add tests proving:
    - session task stays active while running
    - `resolve completed` ends it deterministically
    - `abortedLastRun=true` still resolves as failed
+   - `run-worker` exit `0` resolves `completed`
+   - `run-worker` non-zero exit resolves `failed` with the exit code recorded in the event message
 
 This gives a complete lifecycle without adding schema complexity.
 

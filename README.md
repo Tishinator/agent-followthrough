@@ -32,10 +32,10 @@ node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js run-worker --db 
 
 Behavior:
 - runs the worker command deterministically
-- if the worker exits `0`, the task is auto-resolved as `completed` and immediately sends the completion notification
-- if the worker exits non-zero, the task is left unresolved for explicit handling
+- if the worker exits `0`, the task is auto-resolved as `completed` and immediately sends a notification
+- if the worker exits non-zero, the task is auto-resolved as `failed`, the event message includes the exit code, and it immediately sends a notification
 
-This closes the success path without inferring completion from session transcripts or silence.
+This closes both terminal paths without inferring completion from session transcripts or silence.
 
 ## Canonical watchdog entrypoint
 

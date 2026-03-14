@@ -101,8 +101,8 @@ test('run-worker auto-resolves a session task when worker exits 0 and sends comp
 
   assert.equal(run.status, 0, `run-worker failed: ${run.stderr}`);
   assert.match(run.stdout, /worker-ok/);
-  assert.match(run.stdout, /Auto-resolved task 'cli-worker-complete-1' as completed/);
-  assert.match(run.stdout, /Completion notification sent: fake-openclaw-ok/);
+  assert.match(run.stdout, /Auto-resolved task 'cli-worker-complete-1' as completed after worker exit 0/);
+  assert.match(run.stdout, /Resolution notification sent: fake-openclaw-ok/);
 
   const list = cli(['list', '--active', '--db', dbPath]);
   assert.equal(list.status, 0, `list failed: ${list.stderr}`);
@@ -111,7 +111,7 @@ test('run-worker auto-resolves a session task when worker exits 0 and sends comp
   const events = cli(['events', '--db', dbPath, '--id', 'cli-worker-complete-1']);
   assert.equal(events.status, 0, `events failed: ${events.stderr}`);
   assert.match(events.stdout, /resolved/);
-  assert.match(events.stdout, /worker success/);
+  assert.match(events.stdout, /worker exit 0/);
   assert.match(events.stdout, /\[notification\].*emitter=ok: fake-openclaw-ok/);
 
   const log = fs.readFileSync(logPath, 'utf8');
@@ -153,26 +153,43 @@ test('resolve sends a completion notification when it closes a task', () => {
   assert.match(log, /Task completed: CLI Resolve Notification/);
 });
 
-test('run-worker leaves task unresolved when worker exits non-zero', () => {
-  const { dbPath } = makeTempDb();
+test('run-worker auto-resolves a session task as failed when worker exits non-zero and sends failure notification', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
 
   const reg = cli([
     'register', '--db', dbPath, '--id', 'cli-worker-fail-1', '--title', 'CLI Worker Failure',
     '--interval', '3', '--target', 'telegram:8625301893',
     '--observable-type', 'session', '--observable-id', 'session-worker-uuid-2'
-  ]);
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
   assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
 
   const run = cli([
     'run-worker', '--db', dbPath, '--id', 'cli-worker-fail-1',
     process.execPath, '-e', 'process.stderr.write("worker-fail"); process.exit(7)'
-  ]);
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
 
   assert.equal(run.status, 7, `expected worker exit code 7, stderr: ${run.stderr}`);
   assert.match(run.stderr, /worker-fail/);
-  assert.doesNotMatch(run.stdout, /Auto-resolved/);
+  assert.match(run.stdout, /Auto-resolved task 'cli-worker-fail-1' as failed after worker exit 7/);
+  assert.match(run.stdout, /Resolution notification sent: fake-openclaw-ok/);
 
   const list = cli(['list', '--active', '--db', dbPath]);
   assert.equal(list.status, 0, `list failed: ${list.stderr}`);
-  assert.match(list.stdout, /cli-worker-fail-1/);
+  assert.doesNotMatch(list.stdout, /cli-worker-fail-1/);
+
+  const events = cli(['events', '--db', dbPath, '--id', 'cli-worker-fail-1']);
+  assert.equal(events.status, 0, `events failed: ${events.stderr}`);
+  assert.match(events.stdout, /\[resolved\].*failed/);
+  assert.match(events.stdout, /worker exit 7/);
+  assert.match(events.stdout, /\[notification\].*emitter=ok: fake-openclaw-ok/);
+
+  const log = fs.readFileSync(logPath, 'utf8');
+  assert.match(log, /message send --channel telegram --target 8625301893 --message/);
+  assert.match(log, /Task failed: CLI Worker Failure/);
 });

@@ -41,6 +41,7 @@ test('runWorkerAndAutoResolve marks task completed after worker exit 0', () => {
 
     assert.equal(result.status, 0);
     assert.equal(result.autoResolved, true);
+    assert.equal(result.resolutionStatus, 'completed');
     assert.match(result.stdout, /done/);
 
     const task = getTask(db, 'worker-complete-1');
@@ -50,13 +51,13 @@ test('runWorkerAndAutoResolve marks task completed after worker exit 0', () => {
     const events = getTaskEvents(db, 'worker-complete-1');
     const resolved = events.find((event) => event.event_type === 'resolved');
     assert.ok(resolved);
-    assert.match(resolved.message, /worker success/);
+    assert.match(resolved.message, /worker exit 0/);
   } finally {
     cleanup(db);
   }
 });
 
-test('runWorkerAndAutoResolve does not resolve task after worker non-zero exit', () => {
+test('runWorkerAndAutoResolve marks task failed after worker non-zero exit', () => {
   const db = makeDb();
   try {
     insertTask(db, {
@@ -73,13 +74,17 @@ test('runWorkerAndAutoResolve does not resolve task after worker non-zero exit',
     ]);
 
     assert.equal(result.status, 5);
-    assert.equal(result.autoResolved, false);
+    assert.equal(result.autoResolved, true);
+    assert.equal(result.resolutionStatus, 'failed');
 
     const task = getTask(db, 'worker-fail-1');
-    assert.equal(task.resolution_status, null);
+    assert.equal(task.resolution_status, 'failed');
+    assert.ok(task.resolution_at);
 
     const events = getTaskEvents(db, 'worker-fail-1');
-    assert.equal(events.find((event) => event.event_type === 'resolved'), undefined);
+    const resolved = events.find((event) => event.event_type === 'resolved');
+    assert.ok(resolved);
+    assert.match(resolved.message, /worker exit 5/);
   } finally {
     cleanup(db);
   }

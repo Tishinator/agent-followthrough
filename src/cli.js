@@ -153,7 +153,7 @@ function createProgram() {
 
   program
     .command('run-worker')
-    .description('Run a worker command and auto-resolve the task as completed when it exits 0')
+    .description('Run a worker command and auto-resolve the task as completed on exit 0 or failed on non-zero exit; both paths send a notification')
     .requiredOption('--id <id>', 'Task identifier')
     .option('--db <path>', 'Override SQLite database path')
     .allowUnknownOption(true)
@@ -164,8 +164,7 @@ function createProgram() {
       try {
         const result = runWorkerAndAutoResolve(db, opts.id, command, args, {
           cwd: process.cwd(),
-          env: process.env,
-          resolveMessage: `Task resolved as completed via worker success: ${command}`
+          env: process.env
         });
 
         if (result.stdout) process.stdout.write(result.stdout);
@@ -173,9 +172,10 @@ function createProgram() {
 
         if (result.autoResolved) {
           const now = new Date().toISOString();
-          const emitResult = sendResolutionNotification(db, result.resolvedTask, 'completed', now);
-          console.log(`Auto-resolved task '${opts.id}' as completed after worker exit 0.`);
-          console.log(`Completion notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
+          const emitResult = sendResolutionNotification(db, result.resolvedTask, result.resolutionStatus, now);
+          const exitSummary = result.status === 0 ? 'exit 0' : `exit ${result.status}`;
+          console.log(`Auto-resolved task '${opts.id}' as ${result.resolutionStatus} after worker ${exitSummary}.`);
+          console.log(`Resolution notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
         }
 
         process.exit(result.status ?? 0);

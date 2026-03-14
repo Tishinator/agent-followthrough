@@ -16,6 +16,8 @@ Generated review PDFs are placed in `pdf/`.
 
 This repo uses Gitea Actions with the local `linux` runner.
 
-Current jobs:
-- `node-test` — unit/integration suite
-- `e2e-smoke` — end-to-end validation script (`test/e2e.sh --skip-restart`)
+Current blocking job:
+- `node-test` — deterministic unit/integration suite via `npm test`
+
+Non-blocking internal proof:
+- live/environment-dependent E2E validation remains a required internal proof step for Larry when appropriate, but is not a merge-blocking CI gate

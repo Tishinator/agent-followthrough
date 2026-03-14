@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-13
 **Standard:** WORK_STANDARD.md Engineering Provability Standard
-**Status:** DRAFT — in progress
+**Status:** COMPLETE — implemented and externally validated
 
 ---
 
@@ -253,12 +253,22 @@ These do not block Phase 2A implementation but will be fixed as part of this pha
 
 ## Definition of Done for Phase 2A
 
-- [ ] `src/sessions.js` module exists and is covered by unit tests
-- [ ] `inspectSession()` implemented in `src/watchdog.js`, exported
-- [ ] All 8 `inspectSession` unit tests pass
-- [ ] All `processTask` session integration tests pass
-- [ ] 5 pre-existing failing tests fixed (clean baseline)
-- [ ] CLI accepts `observable-type=session`
-- [ ] E2E: register a real session task, watchdog observes it correctly against live `sessions.json`
-- [ ] All tests GREEN (total count rises from 32 to ≥ 40)
-- [ ] Proof package updated with real execution evidence
+- [x] `src/sessions.js` module exists and is covered by unit tests
+- [x] `inspectSession()` implemented in `src/watchdog.js`, exported
+- [x] All 8 `inspectSession` unit tests pass
+- [x] All `processTask` session integration tests pass
+- [x] 5 pre-existing failing tests fixed (clean baseline)
+- [x] CLI accepts `observable-type=session`
+- [x] E2E: register a real session task, watchdog observes it correctly against live `sessions.json`
+- [x] All tests GREEN (total count rises from 32 to ≥ 40)
+- [x] Proof package updated with real execution evidence
+
+## What Comes Next
+
+Phase 2A solved deterministic session liveness and abort detection.
+The next material product gap is not more liveness work — it is **reliable completion detection for session-backed tasks**.
+
+Recommended next phase:
+- define an explicit session-completion contract
+- prefer deterministic completion signals (`resolve` call or companion marker) over inference
+- keep any future LLM-assisted interpretation optional and non-blocking

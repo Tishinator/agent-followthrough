@@ -1,0 +1,7 @@
+{
+  "agent:main:telegram": {
+    "sessionId": "aborted-session-uuid-0000-0000-000000000001",
+    "updatedAt": 0,
+    "abortedLastRun": true
+  }
+}

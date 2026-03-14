@@ -421,3 +421,113 @@ node -e "inspectSession({ observable_id: '0b826399-b301-4f61-8f7c-b94b19431940',
 **Proven** for the session observer core logic against a real artifact.
 All 59 tests green. Both UUID and key-match lookup verified against live sessions.json.
 Known limitations documented above.
+
+---
+
+# E2E Teardown Hardening Proof
+
+**Date:** 2026-03-14T03:09:06Z
+**Status:** Proven
+
+## Request
+
+Ensure the live E2E test cleans up after itself:
+- no leftover active test tasks in the real persistent DB
+- no stray test cron jobs left registered
+- rerun the test and prove the cleanup works
+
+## Problem Found
+
+The leftover follow-up messages were caused by the older project E2E script:
+- `test/e2e.sh`
+
+Root causes observed:
+- it used the real persistent DB: `data/tasks.db`
+- it created real `e2e-*` tasks in that DB
+- it registered a test cron job during the run
+- cleanup was not guaranteed on failure
+- it invoked `src/watchdog.js --db ...` directly even though `src/watchdog.js` does not parse CLI args, so the intended temp DB override was not actually honored
+
+## Fix Implemented
+
+Updated `test/e2e.sh` to:
+- use a temp DB at `/tmp/agent-follow-up-e2e-<ts>.db`
+- track created task IDs / marker files / cron job IDs
+- install a trap-based `cleanup()` handler
+- delete temp DB, WAL, SHM files on exit
+- delete temporary marker files on exit
+- remove the temporary cron job on exit, including failure cases
+- invoke the watchdog via the real CLI path:
+  - `node src/cli.js watchdog --db <temp-db>`
+
+## Verification Run
+
+Command run:
+
+```bash
+bash test/e2e.sh --skip-restart
+```
+
+Observed result:
+
+```text
+PASS: 13
+FAIL: 0
+All tests PASSED.
+```
+
+## Cleanup Verification
+
+### 1. Real persistent DB remained clean
+
+Before rerun:
+
+```json
+[]
+```
+
+After rerun:
+
+```json
+[]
+```
+
+Observed command:
+
+```bash
+node src/cli.js list --active --json --db data/tasks.db
+```
+
+### 2. No stray E2E cron jobs remained
+
+After rerun, only the main project watchdog cron remained:
+- `agent-follow-up-watchdog`
+
+No `agent-follow-up-e2e-watchdog-*` jobs remained in `openclaw cron list --json`.
+
+### 3. Temp DB cleaned up
+
+Observed:
+- no leftover `/tmp/agent-follow-up-e2e-*.db`
+- no leftover `-wal` / `-shm` sidecars
+
+## Observed Facts
+
+- The rerun passed end-to-end after the teardown hardening.
+- The real persistent DB had no active tasks before or after the rerun.
+- The test-created cron job was removed successfully.
+- The prior spam condition was caused by the old E2E script using the persistent DB and incomplete teardown.
+
+## Inferences
+
+- The E2E test is now safe to run without contaminating the real agent-follow-up task DB.
+- The test is materially more reliable because it now uses the actual supported CLI watchdog interface rather than relying on unsupported direct arg parsing in `src/watchdog.js`.
+
+## Residual Risk
+
+- `--skip-restart` was used for this proof run, so restart-path cleanup was not re-proven in the same pass.
+- Raw proof artifacts in `test/e2e-proof/` were intentionally left uncommitted; this summary is the durable proof record.
+
+## Final Status
+
+**Proven** — E2E teardown now prevents leftover active tasks and stray cron jobs.

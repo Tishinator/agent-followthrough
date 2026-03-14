@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-const { openDb, insertTask, getTask, getTaskEvents } = require('../src/db');
+const { openDb, insertTask, getTask, getTaskEvents, resolveTask, insertEvent } = require('../src/db');
 const { runWatchdog, inspectMarker, inspectSession, notificationDue, UNKNOWN_THRESHOLD, STALE_FACTOR } = require('../src/watchdog');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -488,11 +488,50 @@ test('watchdog observes session task as running when session is fresh', () => {
   }
 });
 
+test('session task remains active until explicit resolve marks it completed', () => {
+  const restore = stubEmitter();
+  const db = makeDb();
+  const sessPath = mkTmpSessions('wd-complete');
+  const uuid = 'session-completed-uuid-0002';
+  try {
+    writeSessionStore(sessPath, {
+      'agent:main:running': { sessionId: uuid, updatedAt: Date.now() - 1000, abortedLastRun: false }
+    });
+    insertTask(db, {
+      id: 'sess-complete-1', title: 'Session Completion Task',
+      notify_target: 'telegram:999',
+      observable_type: 'session',
+      observable_id: uuid,
+      checkin_every_minutes: 3
+    });
+
+    const first = runWatchdog(db, { sessionsPath: sessPath });
+    assert.equal(first[0].observedStatus, 'running');
+
+    let t = getTask(db, 'sess-complete-1');
+    assert.equal(t.resolution_status, null);
+    assert.equal(t.last_observed_status, 'running');
+
+    resolveTask(db, 'sess-complete-1', { resolution_status: 'completed' });
+    insertEvent(db, 'sess-complete-1', 'resolved', 'completed', 'Task resolved as completed via explicit contract.');
+
+    const active = db.prepare('SELECT id FROM tasks WHERE resolution_status IS NULL').all();
+    assert.ok(!active.find(x => x.id === 'sess-complete-1'));
+
+    const second = runWatchdog(db, { sessionsPath: sessPath });
+    assert.equal(second.find(r => r.taskId === 'sess-complete-1'), undefined);
+  } finally {
+    cleanup(db);
+    restore();
+    if (fs.existsSync(sessPath)) fs.unlinkSync(sessPath);
+  }
+});
+
 test('watchdog resolves session task as failed when abortedLastRun=true', () => {
   const restore = stubEmitter();
   const db = makeDb();
   const sessPath = mkTmpSessions('wd-abort');
-  const uuid = 'session-aborted-uuid-0002';
+  const uuid = 'session-aborted-uuid-0003';
   try {
     writeSessionStore(sessPath, {
       'agent:main:aborted': { sessionId: uuid, updatedAt: Date.now() - 1000, abortedLastRun: true }

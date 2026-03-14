@@ -74,12 +74,18 @@ function createProgram() {
           owner_session_uuid: opts.session || null
         });
 
-        insertEvent(db, opts.id, 'registered', 'running',
-          `Registered: type=${opts.observableType} observable=${opts.observableId} target=${opts.target}`);
+        const registrationMessage = opts.observableType === 'session'
+          ? `Registered: type=${opts.observableType} observable=${opts.observableId} target=${opts.target}; completion requires explicit resolve --status completed|failed`
+          : `Registered: type=${opts.observableType} observable=${opts.observableId} target=${opts.target}`;
+
+        insertEvent(db, opts.id, 'registered', 'running', registrationMessage);
 
         const task = getTask(db, opts.id);
         console.log(`Registered task: ${opts.id}`);
         console.log(JSON.stringify(task, null, 2));
+        if (opts.observableType === 'session') {
+          console.log(`Session completion contract: resolve with \`agent-follow-up resolve --id ${opts.id} --status completed\` when work finishes.`);
+        }
       } finally {
         db.close();
       }
@@ -87,7 +93,7 @@ function createProgram() {
 
   program
     .command('resolve')
-    .description('Mark a task as completed or failed')
+    .description('Mark a task as completed or failed (official completion path for session/manual tasks)')
     .requiredOption('--id <id>', 'Task identifier')
     .requiredOption('--status <status>', 'Resolution status: completed | failed')
     .option('--message <msg>', 'Optional resolution message')

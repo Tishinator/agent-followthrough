@@ -52,3 +52,17 @@ test('resolve of unknown task exits 1', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /not found/i);
 });
+
+test('session register prints explicit completion contract note', () => {
+  const { dbPath } = makeTempDb();
+
+  const reg = cli([
+    'register', '--db', dbPath, '--id', 'cli-session-contract-1', '--title', 'CLI Session Contract',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'session', '--observable-id', 'session-contract-uuid-1'
+  ]);
+
+  assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
+  assert.match(reg.stdout, /Session completion contract:/);
+  assert.match(reg.stdout, /resolve --id cli-session-contract-1 --status completed/);
+});

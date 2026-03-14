@@ -40,6 +40,11 @@ Later:
 {"status":"completed","updatedAt":"2026-03-14T14:00:00Z"}
 ```
 
+Important:
+- `status` is the authoritative field the watchdog reads
+- extra fields like `updatedAt` are optional metadata for humans/other tools
+- the watchdog does **not** currently interpret `updatedAt` for marker tasks
+
 Use this when you want the watchdog to infer progress and terminal state directly from a deterministic artifact.
 
 ---

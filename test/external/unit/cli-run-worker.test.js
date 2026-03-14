@@ -6,10 +6,11 @@
  * The run-worker command is entirely new in Phase 2b:
  *   node bin/agent-follow-up.js run-worker --id <id> [--db <path>] <command> [args...]
  *
- * Contract:
+ * Contract (updated for failure contract — Phase 2b cc18e2f):
  *   - Runs <command> synchronously
  *   - If command exits 0: resolves task as completed, exits 0
- *   - If command exits non-zero: does NOT resolve task, exits with command's code
+ *   - If command exits non-zero: resolves task as failed, exits with command's code
+ *   - Both paths: send a resolution notification, autoResolved=true
  *   - stdout/stderr from the command are passed through
  *   - Missing task: exits 1 with error on stderr
  *   - Already-resolved task: exits 1 with error on stderr
@@ -92,9 +93,9 @@ test('run-worker: exit-0 passes command stdout through', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-// ─── non-zero exit: no auto-resolve ──────────────────────────────────────────
+// ─── non-zero exit: auto-resolve as failed ────────────────────────────────────
 
-test('run-worker: exit-1 command exits 1 and does NOT resolve task', () => {
+test('run-worker: exit-1 command exits 1 and resolves task as failed', () => {
   const dir = tmpDir();
   try {
     const dbPath = setupDb(dir);
@@ -105,7 +106,8 @@ test('run-worker: exit-1 command exits 1 and does NOT resolve task', () => {
     const db = openDb(dbPath);
     const task = db.prepare("SELECT * FROM tasks WHERE id = 'rw-task-1'").get();
     db.close();
-    assert.equal(task.resolution_status, null, 'task should remain unresolved');
+    assert.equal(task.resolution_status, 'failed', 'task should be resolved as failed');
+    assert.ok(task.resolution_at, 'resolution_at should be set');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -66,3 +66,56 @@ test('session register prints explicit completion contract note', () => {
   assert.match(reg.stdout, /Session completion contract:/);
   assert.match(reg.stdout, /resolve --id cli-session-contract-1 --status completed/);
 });
+
+test('run-worker auto-resolves a session task when worker exits 0', () => {
+  const { dbPath } = makeTempDb();
+
+  const reg = cli([
+    'register', '--db', dbPath, '--id', 'cli-worker-complete-1', '--title', 'CLI Worker Completion',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'session', '--observable-id', 'session-worker-uuid-1'
+  ]);
+  assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
+
+  const run = cli([
+    'run-worker', '--db', dbPath, '--id', 'cli-worker-complete-1',
+    process.execPath, '-e', 'process.stdout.write("worker-ok")'
+  ]);
+
+  assert.equal(run.status, 0, `run-worker failed: ${run.stderr}`);
+  assert.match(run.stdout, /worker-ok/);
+  assert.match(run.stdout, /Auto-resolved task 'cli-worker-complete-1' as completed/);
+
+  const list = cli(['list', '--active', '--db', dbPath]);
+  assert.equal(list.status, 0, `list failed: ${list.stderr}`);
+  assert.doesNotMatch(list.stdout, /cli-worker-complete-1/);
+
+  const events = cli(['events', '--db', dbPath, '--id', 'cli-worker-complete-1']);
+  assert.equal(events.status, 0, `events failed: ${events.stderr}`);
+  assert.match(events.stdout, /resolved/);
+  assert.match(events.stdout, /worker success/);
+});
+
+test('run-worker leaves task unresolved when worker exits non-zero', () => {
+  const { dbPath } = makeTempDb();
+
+  const reg = cli([
+    'register', '--db', dbPath, '--id', 'cli-worker-fail-1', '--title', 'CLI Worker Failure',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'session', '--observable-id', 'session-worker-uuid-2'
+  ]);
+  assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
+
+  const run = cli([
+    'run-worker', '--db', dbPath, '--id', 'cli-worker-fail-1',
+    process.execPath, '-e', 'process.stderr.write("worker-fail"); process.exit(7)'
+  ]);
+
+  assert.equal(run.status, 7, `expected worker exit code 7, stderr: ${run.stderr}`);
+  assert.match(run.stderr, /worker-fail/);
+  assert.doesNotMatch(run.stdout, /Auto-resolved/);
+
+  const list = cli(['list', '--active', '--db', dbPath]);
+  assert.equal(list.status, 0, `list failed: ${list.stderr}`);
+  assert.match(list.stdout, /cli-worker-fail-1/);
+});

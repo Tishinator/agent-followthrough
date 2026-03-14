@@ -21,3 +21,18 @@ Current blocking job:
 
 Non-blocking internal proof:
 - live/environment-dependent E2E validation remains a required internal proof step for Larry when appropriate, but is not a merge-blocking CI gate
+
+## Session worker integration
+
+Phase 2B adds a minimal launcher-side seam for session-backed tasks:
+
+```sh
+agent-follow-up run-worker --db ./data/tasks.db --id my-task -- node ./worker.js
+```
+
+Behavior:
+- runs the worker command deterministically
+- if the worker exits `0`, the task is auto-resolved as `completed`
+- if the worker exits non-zero, the task is left unresolved for explicit handling
+
+This closes the success path without inferring completion from session transcripts or silence.

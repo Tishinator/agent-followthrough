@@ -14,6 +14,7 @@ const {
   getTaskEvents
 } = require('./db');
 const { runWatchdog } = require('./watchdog');
+const { runWorkerAndAutoResolve } = require('./worker');
 
 function createProgram() {
   const program = new Command();
@@ -130,6 +131,36 @@ function createProgram() {
         const updated = getTask(db, opts.id);
         console.log(`Resolved task '${opts.id}' as ${opts.status}.`);
         console.log(JSON.stringify(updated, null, 2));
+      } finally {
+        db.close();
+      }
+    });
+
+  program
+    .command('run-worker')
+    .description('Run a worker command and auto-resolve the task as completed when it exits 0')
+    .requiredOption('--id <id>', 'Task identifier')
+    .option('--db <path>', 'Override SQLite database path')
+    .allowUnknownOption(true)
+    .argument('<command>', 'Worker command to execute')
+    .argument('[args...]', 'Arguments passed to the worker command')
+    .action((command, args, opts) => {
+      const db = openDb(opts.db);
+      try {
+        const result = runWorkerAndAutoResolve(db, opts.id, command, args, {
+          cwd: process.cwd(),
+          env: process.env,
+          resolveMessage: `Task resolved as completed via worker success: ${command}`
+        });
+
+        if (result.stdout) process.stdout.write(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
+
+        if (result.autoResolved) {
+          console.log(`Auto-resolved task '${opts.id}' as completed after worker exit 0.`);
+        }
+
+        process.exit(result.status ?? 0);
       } finally {
         db.close();
       }

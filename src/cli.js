@@ -15,6 +15,7 @@ const {
 } = require('./db');
 const { runWatchdog } = require('./watchdog');
 const { runWorkerAndAutoResolve } = require('./worker');
+const { summarizeTasks, runDoctor } = require('./observability');
 const emitter = require('./emitter');
 
 function sendResolutionNotification(db, task, status, now) {
@@ -255,6 +256,85 @@ function createProgram() {
         }
       } finally {
         db.close();
+      }
+    });
+
+  program
+    .command('status')
+    .description('Show operator-focused task summary')
+    .option('--json', 'Output as JSON', false)
+    .option('--db <path>', 'Override SQLite database path')
+    .action((opts) => {
+      const summary = summarizeTasks(opts.db);
+      if (opts.json) {
+        console.log(JSON.stringify(summary, null, 2));
+        return;
+      }
+
+      console.log(`Agent Follow-Up status`);
+      console.log(`DB: ${summary.dbPath}`);
+      console.log(`Generated: ${summary.generatedAt}`);
+      console.log(`Active tasks: ${summary.activeTaskCount}`);
+      console.log(`Resolved tasks: ${summary.resolvedTaskCount}`);
+
+      const states = Object.keys(summary.activeTasksByState).sort();
+      if (states.length === 0) {
+        console.log('Active by state: none');
+      } else {
+        console.log('Active by state:');
+        for (const state of states) {
+          console.log(`  - ${state}: ${summary.activeTasksByState[state]}`);
+        }
+      }
+
+      console.log('Tasks needing attention:');
+      if (summary.tasksNeedingAttention.length === 0) {
+        console.log('  - none');
+      } else {
+        for (const task of summary.tasksNeedingAttention) {
+          console.log(`  - ${task.id} (${task.state}) title="${task.title}" notif=${task.last_notification_status || 'none'}`);
+        }
+      }
+
+      console.log('Recent resolved tasks:');
+      if (summary.recentResolvedTasks.length === 0) {
+        console.log('  - none');
+      } else {
+        for (const task of summary.recentResolvedTasks) {
+          console.log(`  - ${task.id} [${task.resolution_status}] ${task.title} @ ${task.resolution_at}`);
+        }
+      }
+    });
+
+  program
+    .command('doctor')
+    .description('Run health and sanity checks for Agent Follow-Up')
+    .option('--json', 'Output as JSON', false)
+    .option('--db <path>', 'Override SQLite database path')
+    .option('--cron-jobs-path <path>', 'Override OpenClaw cron jobs.json path')
+    .action((opts) => {
+      const report = runDoctor(opts.db, { cronJobsPath: opts.cronJobsPath });
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log('Agent Follow-Up doctor');
+        console.log(`DB: ${report.dbPath}`);
+        console.log(`Cron jobs: ${report.cronJobsPath}`);
+        for (const check of report.checks) {
+          console.log(`  [${check.ok ? 'ok' : 'fail'}] ${check.name}: ${check.details}`);
+        }
+        if (report.warnings.length === 0) {
+          console.log('Warnings: none');
+        } else {
+          console.log('Warnings:');
+          for (const warning of report.warnings) {
+            console.log(`  [warn] ${warning.name}: ${warning.details.join(', ')}`);
+          }
+        }
+      }
+
+      if (!report.ok) {
+        process.exitCode = 1;
       }
     });
 

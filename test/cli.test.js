@@ -193,3 +193,51 @@ test('run-worker auto-resolves a session task as failed when worker exits non-ze
   assert.match(log, /message send --channel telegram --target 8625301893 --message/);
   assert.match(log, /Task failed: CLI Worker Failure/);
 });
+
+test('status reports summary in human and json form', () => {
+  const { dir, dbPath } = makeTempDb();
+  const marker = path.join(dir, 'marker.json');
+  fs.writeFileSync(marker, JSON.stringify({ status: 'running' }));
+
+  assert.equal(cli([
+    'register', '--db', dbPath, '--id', 'status-run-1', '--title', 'Status Running',
+    '--interval', '3', '--target', 'telegram:1', '--observable-type', 'marker', '--observable-id', marker
+  ]).status, 0);
+
+  assert.equal(cli([
+    'register', '--db', dbPath, '--id', 'status-manual-1', '--title', 'Status Manual',
+    '--interval', '3', '--target', 'telegram:2', '--observable-type', 'manual', '--observable-id', 'manual-1'
+  ]).status, 0);
+
+  const watchdog = cli(['watchdog', '--db', dbPath]);
+  assert.equal(watchdog.status, 0, `watchdog failed: ${watchdog.stderr}`);
+  const human = cli(['status', '--db', dbPath]);
+  assert.equal(human.status, 0, `status failed: ${human.stderr}`);
+  assert.match(human.stdout, /Agent Follow-Up status/);
+  assert.match(human.stdout, /DB: /);
+  assert.match(human.stdout, /Active tasks: 2/);
+  assert.match(human.stdout, /Recent resolved tasks:/);
+
+  const json = cli(['status', '--db', dbPath, '--json']);
+  assert.equal(json.status, 0, `status --json failed: ${json.stderr}`);
+  const parsed = JSON.parse(json.stdout);
+  assert.equal(parsed.activeTaskCount, 2);
+  assert.equal(parsed.activeTasksByState.running, 2);
+  assert.equal(Array.isArray(parsed.tasksNeedingAttention), true);
+});
+
+test('doctor reports failures for missing cron job path in human and json form', () => {
+  const { dbPath } = makeTempDb();
+  const cronJobsPath = path.join(os.tmpdir(), `afu-cron-missing-${process.pid}-${Date.now()}.json`);
+
+  const human = cli(['doctor', '--db', dbPath, '--cron-jobs-path', cronJobsPath]);
+  assert.equal(human.status, 1);
+  assert.match(human.stdout, /Agent Follow-Up doctor/);
+  assert.match(human.stdout, /\[fail\] cron_jobs_readable/);
+
+  const json = cli(['doctor', '--db', dbPath, '--cron-jobs-path', cronJobsPath, '--json']);
+  assert.equal(json.status, 1);
+  const parsed = JSON.parse(json.stdout);
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.checks.find((c) => c.name === 'cron_jobs_readable').ok, false);
+});

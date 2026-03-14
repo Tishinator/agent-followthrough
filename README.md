@@ -37,6 +37,19 @@ Behavior:
 
 This closes both terminal paths without inferring completion from session transcripts or silence.
 
+## Operator commands
+
+Quick operator-facing surfaces:
+
+```sh
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js status
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js status --json
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js doctor
+```
+
+- `status` summarizes active tasks by state, recent resolved tasks, tasks needing attention, and the DB path in use.
+- `doctor` checks DB reachability, OpenClaw cron registration, canonical watchdog payload alignment, and warns on unresolved stale/unknown tasks.
+
 ## Canonical watchdog entrypoint
 
 Use the binary entrypoint for operational automation / cron:

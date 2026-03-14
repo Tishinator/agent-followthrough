@@ -238,7 +238,7 @@ Notification suppressed on cycle 2 because `last_notification_sent_at` was withi
 $ openclaw cron add \
     --name "agent-follow-up-watchdog" \
     --every 3m \
-    --system-event "node /home/tish/projects/agent-follow-up/src/watchdog.js" \
+    --system-event "node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog" \
     --description "Agent Follow-Up deterministic watchdog ..." \
     --json
 {
@@ -247,7 +247,7 @@ $ openclaw cron add \
   "enabled": true,
   "schedule": { "kind": "every", "everyMs": 180000 },
   "payload": { "kind": "systemEvent",
-               "text": "node /home/tish/projects/agent-follow-up/src/watchdog.js" }
+               "text": "node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog" }
 }
 ```
 
@@ -261,7 +261,7 @@ $ openclaw cron runs --id a8ff259d-0227-400c-9441-965e7eafb112
   "entries": [{
     "action": "finished",
     "status": "ok",
-    "summary": "node /home/tish/projects/agent-follow-up/src/watchdog.js",
+    "summary": "node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog",
     "durationMs": 3764
   }]
 }

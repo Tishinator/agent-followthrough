@@ -27,7 +27,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROOF_DIR="$PROJECT_DIR/test/e2e-proof"
 DB_PATH="/tmp/agent-follow-up-e2e-$(date +%s).db"
 CLI="$PROJECT_DIR/src/cli.js"
-WATCHDOG="$PROJECT_DIR/src/watchdog.js"
+BIN="$PROJECT_DIR/bin/agent-follow-up.js"
 WATCHDOG_CMD=(node "$CLI" watchdog --db "$DB_PATH")
 TELEGRAM_TARGET="telegram:8625301893"
 SKIP_RESTART=false
@@ -379,7 +379,7 @@ else
     --name "$CRON_JOB_NAME" \
     --every 3m \
     --session isolated \
-    --message "Run agent-follow-up watchdog: node $CLI watchdog --db $DB_PATH" \
+    --message "Run agent-follow-up watchdog: node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog" \
     > "$PROOF_DIR/t7-cron-add.txt" 2>&1
 
   CRON_JOB_ID=$(openclaw cron list --json 2>/dev/null | \

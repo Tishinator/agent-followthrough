@@ -15,6 +15,19 @@ const {
 } = require('./db');
 const { runWatchdog } = require('./watchdog');
 const { runWorkerAndAutoResolve } = require('./worker');
+const emitter = require('./emitter');
+
+function sendResolutionNotification(db, task, status, now) {
+  const message = emitter.buildMessage(task, status);
+  const emitResult = emitter.sendNotification(task.notify_target, message);
+  insertEvent(db, task.id, 'notification', status,
+    `emitter=${emitResult.success ? 'ok' : 'failed'}: ${emitResult.output}`);
+  updateTaskObservation(db, task.id, {
+    last_notification_sent_at: now,
+    last_notification_status: emitResult.success ? 'sent' : 'failed'
+  });
+  return emitResult;
+}
 
 function createProgram() {
   const program = new Command();
@@ -129,8 +142,10 @@ function createProgram() {
           opts.message || `Task resolved as ${opts.status} via CLI.`);
 
         const updated = getTask(db, opts.id);
+        const emitResult = sendResolutionNotification(db, updated, opts.status, now);
         console.log(`Resolved task '${opts.id}' as ${opts.status}.`);
-        console.log(JSON.stringify(updated, null, 2));
+        console.log(`Completion notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
+        console.log(JSON.stringify(getTask(db, opts.id), null, 2));
       } finally {
         db.close();
       }
@@ -157,7 +172,10 @@ function createProgram() {
         if (result.stderr) process.stderr.write(result.stderr);
 
         if (result.autoResolved) {
+          const now = new Date().toISOString();
+          const emitResult = sendResolutionNotification(db, result.resolvedTask, 'completed', now);
           console.log(`Auto-resolved task '${opts.id}' as completed after worker exit 0.`);
+          console.log(`Completion notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
         }
 
         process.exit(result.status ?? 0);

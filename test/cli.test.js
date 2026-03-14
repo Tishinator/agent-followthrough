@@ -16,6 +16,17 @@ function cli(args, opts = {}) {
   return spawnSync('node', [CLI, ...args], { encoding: 'utf8', ...opts });
 }
 
+function makeFakeOpenClaw(dir, logPath) {
+  const binPath = path.join(dir, 'openclaw');
+  fs.writeFileSync(binPath, `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(logPath)}, process.argv.slice(2).join(' ') + "\\n");
+process.stdout.write('fake-openclaw-ok');
+`);
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
+}
+
 test('register then list shows the task', () => {
   const { dir, dbPath } = makeTempDb();
   const marker = path.join(dir, 'marker.json');
@@ -67,24 +78,31 @@ test('session register prints explicit completion contract note', () => {
   assert.match(reg.stdout, /resolve --id cli-session-contract-1 --status completed/);
 });
 
-test('run-worker auto-resolves a session task when worker exits 0', () => {
-  const { dbPath } = makeTempDb();
+test('run-worker auto-resolves a session task when worker exits 0 and sends completion notification', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
 
   const reg = cli([
     'register', '--db', dbPath, '--id', 'cli-worker-complete-1', '--title', 'CLI Worker Completion',
     '--interval', '3', '--target', 'telegram:8625301893',
     '--observable-type', 'session', '--observable-id', 'session-worker-uuid-1'
-  ]);
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
   assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
 
   const run = cli([
     'run-worker', '--db', dbPath, '--id', 'cli-worker-complete-1',
     process.execPath, '-e', 'process.stdout.write("worker-ok")'
-  ]);
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
 
   assert.equal(run.status, 0, `run-worker failed: ${run.stderr}`);
   assert.match(run.stdout, /worker-ok/);
   assert.match(run.stdout, /Auto-resolved task 'cli-worker-complete-1' as completed/);
+  assert.match(run.stdout, /Completion notification sent: fake-openclaw-ok/);
 
   const list = cli(['list', '--active', '--db', dbPath]);
   assert.equal(list.status, 0, `list failed: ${list.stderr}`);
@@ -94,6 +112,45 @@ test('run-worker auto-resolves a session task when worker exits 0', () => {
   assert.equal(events.status, 0, `events failed: ${events.stderr}`);
   assert.match(events.stdout, /resolved/);
   assert.match(events.stdout, /worker success/);
+  assert.match(events.stdout, /\[notification\].*emitter=ok: fake-openclaw-ok/);
+
+  const log = fs.readFileSync(logPath, 'utf8');
+  assert.match(log, /message send --channel telegram --target 8625301893 --message/);
+  assert.match(log, /Task completed: CLI Worker Completion/);
+});
+
+test('resolve sends a completion notification when it closes a task', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
+
+  const reg = cli([
+    'register', '--db', dbPath, '--id', 'cli-resolve-notify-1', '--title', 'CLI Resolve Notification',
+    '--interval', '3', '--target', 'telegram:8625301893',
+    '--observable-type', 'manual', '--observable-id', 'manual-label-1'
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+  assert.equal(reg.status, 0, `register failed: ${reg.stderr}`);
+
+  const resolved = cli([
+    'resolve', '--db', dbPath, '--id', 'cli-resolve-notify-1', '--status', 'completed'
+  ], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+
+  assert.equal(resolved.status, 0, `resolve failed: ${resolved.stderr}`);
+  assert.match(resolved.stdout, /Resolved task 'cli-resolve-notify-1' as completed/);
+  assert.match(resolved.stdout, /Completion notification sent: fake-openclaw-ok/);
+
+  const events = cli(['events', '--db', dbPath, '--id', 'cli-resolve-notify-1']);
+  assert.equal(events.status, 0, `events failed: ${events.stderr}`);
+  assert.match(events.stdout, /\[resolved\].*Task resolved as completed via CLI/);
+  assert.match(events.stdout, /\[notification\].*emitter=ok: fake-openclaw-ok/);
+
+  const log = fs.readFileSync(logPath, 'utf8');
+  assert.match(log, /message send --channel telegram --target 8625301893 --message/);
+  assert.match(log, /Task completed: CLI Resolve Notification/);
 });
 
 test('run-worker leaves task unresolved when worker exits non-zero', () => {

@@ -27,12 +27,20 @@ Non-blocking internal proof:
 Phase 2B adds a minimal launcher-side seam for session-backed tasks:
 
 ```sh
-agent-follow-up run-worker --db ./data/tasks.db --id my-task -- node ./worker.js
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js run-worker --db ./data/tasks.db --id my-task -- node ./worker.js
 ```
 
 Behavior:
 - runs the worker command deterministically
-- if the worker exits `0`, the task is auto-resolved as `completed`
+- if the worker exits `0`, the task is auto-resolved as `completed` and immediately sends the completion notification
 - if the worker exits non-zero, the task is left unresolved for explicit handling
 
 This closes the success path without inferring completion from session transcripts or silence.
+
+## Canonical watchdog entrypoint
+
+Use the binary entrypoint for operational automation / cron:
+
+```sh
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog
+```

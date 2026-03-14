@@ -25,12 +25,17 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROOF_DIR="$PROJECT_DIR/test/e2e-proof"
-DB_PATH="$PROJECT_DIR/data/tasks.db"
+DB_PATH="/tmp/agent-follow-up-e2e-$(date +%s).db"
 CLI="$PROJECT_DIR/src/cli.js"
 WATCHDOG="$PROJECT_DIR/src/watchdog.js"
+WATCHDOG_CMD=(node "$CLI" watchdog --db "$DB_PATH")
 TELEGRAM_TARGET="telegram:8625301893"
 SKIP_RESTART=false
 SKIP_CRON=false
+CREATED_TASK_IDS=()
+CREATED_MARKERS=()
+CRON_JOB_ID=""
+CRON_JOB_NAME=""
 
 for arg in "$@"; do
   [[ "$arg" == "--skip-restart" ]] && SKIP_RESTART=true
@@ -66,6 +71,24 @@ require_cmd() {
     exit 1
   fi
 }
+
+cleanup() {
+  if [[ -n "$CRON_JOB_ID" ]]; then
+    openclaw cron rm "$CRON_JOB_ID" > /dev/null 2>&1 || true
+  elif [[ -n "$CRON_JOB_NAME" ]]; then
+    local found_id
+    found_id=$(openclaw cron list --json 2>/dev/null | node -e "const fs=require('fs'); const input=fs.readFileSync(0,'utf8'); const data=JSON.parse(input); const jobs=Array.isArray(data)?data:(data.jobs||[]); const job=jobs.find(x=>x.name==='${CRON_JOB_NAME}'); console.log(job ? (job.jobId || job.id || '') : '');" 2>/dev/null || true)
+    [[ -n "$found_id" ]] && openclaw cron rm "$found_id" > /dev/null 2>&1 || true
+  fi
+
+  for marker in "${CREATED_MARKERS[@]}"; do
+    rm -f "$marker" 2>/dev/null || true
+  done
+
+  rm -f "$DB_PATH" "${DB_PATH}-wal" "${DB_PATH}-shm" 2>/dev/null || true
+}
+
+trap cleanup EXIT
 
 # ─── preflight ────────────────────────────────────────────────────────────────
 
@@ -110,7 +133,9 @@ log ""
 log "=== T2: Registration -> watchdog -> completion flow ==="
 
 TASK_ID="e2e-completion-$(date +%s)"
+CREATED_TASK_IDS+=("$TASK_ID")
 MARKER_PATH="/tmp/${TASK_ID}.marker.json"
+CREATED_MARKERS+=("$MARKER_PATH")
 
 # Write running marker
 echo '{"status":"running"}' > "$MARKER_PATH"
@@ -136,7 +161,7 @@ fi
 sqlite3 "$DB_PATH" "SELECT * FROM tasks WHERE id='$TASK_ID'" > "$PROOF_DIR/t2-db-after-register.txt"
 
 # Run watchdog (first cycle, marker=running)
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t2-watchdog-cycle1.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t2-watchdog-cycle1.txt" 2>&1 || true
 
 CYCLE1_STATUS=$(sqlite3 "$DB_PATH" "SELECT last_observed_status FROM tasks WHERE id='$TASK_ID'")
 if [[ "$CYCLE1_STATUS" == "running" ]]; then
@@ -157,7 +182,7 @@ fi
 echo '{"status":"completed","exitCode":0,"updatedAt":"'"$(ts)"'"}' > "$MARKER_PATH"
 
 # Run watchdog again — should detect completion
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t2-watchdog-cycle2-completion.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t2-watchdog-cycle2-completion.txt" 2>&1 || true
 
 RESOLUTION=$(sqlite3 "$DB_PATH" "SELECT resolution_status FROM tasks WHERE id='$TASK_ID'")
 if [[ "$RESOLUTION" == "completed" ]]; then
@@ -177,7 +202,9 @@ log ""
 log "=== T3: Failure flow ==="
 
 TASK_ID_F="e2e-failure-$(date +%s)"
+CREATED_TASK_IDS+=("$TASK_ID_F")
 MARKER_PATH_F="/tmp/${TASK_ID_F}.marker.json"
+CREATED_MARKERS+=("$MARKER_PATH_F")
 echo '{"status":"running"}' > "$MARKER_PATH_F"
 
 node "$CLI" register \
@@ -192,7 +219,7 @@ node "$CLI" register \
 
 echo '{"status":"failed","exitCode":1,"updatedAt":"'"$(ts)"'"}' > "$MARKER_PATH_F"
 
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t3-watchdog-failure.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t3-watchdog-failure.txt" 2>&1 || true
 
 FAIL_RESOLUTION=$(sqlite3 "$DB_PATH" "SELECT resolution_status FROM tasks WHERE id='$TASK_ID_F'")
 if [[ "$FAIL_RESOLUTION" == "failed" ]]; then
@@ -210,7 +237,9 @@ log ""
 log "=== T4: Unknown threshold at N=2 cycles ==="
 
 TASK_ID_U="e2e-unknown-$(date +%s)"
+CREATED_TASK_IDS+=("$TASK_ID_U")
 MISSING_MARKER="/tmp/no-such-marker-${TASK_ID_U}.json"
+CREATED_MARKERS+=("$MISSING_MARKER")
 
 node "$CLI" register \
   --id "$TASK_ID_U" \
@@ -223,7 +252,7 @@ node "$CLI" register \
   > "$PROOF_DIR/t4-register.txt" 2>&1
 
 # Cycle 1 — expect stale
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t4-watchdog-cycle1.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t4-watchdog-cycle1.txt" 2>&1 || true
 CYCLE1_U=$(sqlite3 "$DB_PATH" "SELECT last_observed_status, unknown_cycle_count FROM tasks WHERE id='$TASK_ID_U'")
 if echo "$CYCLE1_U" | grep -q "stale"; then
   pass "T4a: cycle 1 produces stale status"
@@ -232,7 +261,7 @@ else
 fi
 
 # Cycle 2 — expect unknown
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t4-watchdog-cycle2.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t4-watchdog-cycle2.txt" 2>&1 || true
 CYCLE2_U=$(sqlite3 "$DB_PATH" "SELECT last_observed_status, unknown_cycle_count FROM tasks WHERE id='$TASK_ID_U'")
 if echo "$CYCLE2_U" | grep -q "unknown"; then
   pass "T4b: cycle 2 transitions to unknown (threshold N=2 honored)"
@@ -248,7 +277,9 @@ log ""
 log "=== T5: Duplicate notification suppression ==="
 
 TASK_ID_S="e2e-suppress-$(date +%s)"
+CREATED_TASK_IDS+=("$TASK_ID_S")
 MARKER_PATH_S="/tmp/${TASK_ID_S}.marker.json"
+CREATED_MARKERS+=("$MARKER_PATH_S")
 echo '{"status":"running"}' > "$MARKER_PATH_S"
 
 node "$CLI" register \
@@ -262,12 +293,12 @@ node "$CLI" register \
   > "$PROOF_DIR/t5-register.txt" 2>&1
 
 # Cycle 1 — should notify
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t5-watchdog-cycle1.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t5-watchdog-cycle1.txt" 2>&1 || true
 
 NOTIF_COUNT_1=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_events WHERE task_id='$TASK_ID_S' AND event_type='notification'")
 
 # Cycle 2 immediately — should NOT send another notification (within interval)
-node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t5-watchdog-cycle2.txt" 2>&1 || true
+"${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t5-watchdog-cycle2.txt" 2>&1 || true
 
 NOTIF_COUNT_2=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_events WHERE task_id='$TASK_ID_S' AND event_type='notification'")
 
@@ -290,7 +321,9 @@ else
   log "=== T6: Restart persistence ==="
 
   TASK_ID_R="e2e-restart-$(date +%s)"
+  CREATED_TASK_IDS+=("$TASK_ID_R")
   MARKER_PATH_R="/tmp/${TASK_ID_R}.marker.json"
+  CREATED_MARKERS+=("$MARKER_PATH_R")
   echo '{"status":"running"}' > "$MARKER_PATH_R"
 
   node "$CLI" register \
@@ -317,7 +350,7 @@ else
   fi
 
   # Run watchdog after restart — should still process the task
-  node "$WATCHDOG" --db "$DB_PATH" > "$PROOF_DIR/t6-watchdog-after-restart.txt" 2>&1 || true
+  "${WATCHDOG_CMD[@]}" > "$PROOF_DIR/t6-watchdog-after-restart.txt" 2>&1 || true
 
   POST_RESTART_STATUS=$(sqlite3 "$DB_PATH" "SELECT last_observed_status FROM tasks WHERE id='$TASK_ID_R'")
   if [[ "$POST_RESTART_STATUS" == "running" ]]; then
@@ -346,24 +379,24 @@ else
     --name "$CRON_JOB_NAME" \
     --every 3m \
     --session isolated \
-    --message "Run agent-follow-up watchdog: node $WATCHDOG" \
+    --message "Run agent-follow-up watchdog: node $CLI watchdog --db $DB_PATH" \
     > "$PROOF_DIR/t7-cron-add.txt" 2>&1
 
-  JOB_ID=$(openclaw cron list --json 2>/dev/null | \
-    node -e "const j=require('fs').readFileSync('/dev/stdin','utf8'); const jobs=JSON.parse(j); const job=jobs.find(x=>x.name==='$CRON_JOB_NAME'); console.log(job ? job.jobId : '');" 2>/dev/null || echo "")
+  CRON_JOB_ID=$(openclaw cron list --json 2>/dev/null | \
+    node -e "const j=require('fs').readFileSync('/dev/stdin','utf8'); const data=JSON.parse(j); const jobs=Array.isArray(data)?data:(data.jobs||[]); const job=jobs.find(x=>x.name==='$CRON_JOB_NAME'); console.log(job ? (job.jobId || job.id || '') : '');" 2>/dev/null || echo "")
 
-  if [[ -n "$JOB_ID" ]]; then
-    pass "T7a: cron job registered in OpenClaw (jobId=$JOB_ID)"
-    echo "jobId: $JOB_ID" >> "$PROOF_DIR/t7-cron-add.txt"
+  if [[ -n "$CRON_JOB_ID" ]]; then
+    pass "T7a: cron job registered in OpenClaw (jobId=$CRON_JOB_ID)"
+    echo "jobId: $CRON_JOB_ID" >> "$PROOF_DIR/t7-cron-add.txt"
   else
     fail "T7a: cron job not found in openclaw cron list after add"
   fi
 
   # Trigger immediately and capture run log
-  if [[ -n "$JOB_ID" ]]; then
-    openclaw cron run "$JOB_ID" > "$PROOF_DIR/t7-cron-run.txt" 2>&1 || true
+  if [[ -n "$CRON_JOB_ID" ]]; then
+    openclaw cron run "$CRON_JOB_ID" > "$PROOF_DIR/t7-cron-run.txt" 2>&1 || true
     sleep 2
-    openclaw cron runs --id "$JOB_ID" > "$PROOF_DIR/t7-cron-run-log.txt" 2>&1 || true
+    openclaw cron runs --id "$CRON_JOB_ID" > "$PROOF_DIR/t7-cron-run-log.txt" 2>&1 || true
 
     if [[ -s "$PROOF_DIR/t7-cron-run-log.txt" ]]; then
       pass "T7b: cron run log exists and is non-empty"
@@ -372,7 +405,8 @@ else
     fi
 
     # Clean up the test cron job
-    openclaw cron rm "$JOB_ID" > /dev/null 2>&1 || true
+    openclaw cron rm "$CRON_JOB_ID" > /dev/null 2>&1 || true
+    CRON_JOB_ID=""
   fi
 fi
 
@@ -383,7 +417,9 @@ log "=== T8: CLI negative cases ==="
 
 # Duplicate registration
 TASK_DUP="e2e-dup-$(date +%s)"
+CREATED_TASK_IDS+=("$TASK_DUP")
 MARKER_DUP="/tmp/${TASK_DUP}.marker.json"
+CREATED_MARKERS+=("$MARKER_DUP")
 echo '{"status":"running"}' > "$MARKER_DUP"
 
 node "$CLI" register \

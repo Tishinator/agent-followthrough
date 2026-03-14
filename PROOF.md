@@ -531,3 +531,168 @@ Observed:
 ## Final Status
 
 **Proven** — E2E teardown now prevents leftover active tasks and stray cron jobs.
+
+---
+
+# Phase 2B Hardening Proof
+
+**Date:** 2026-03-14T13:31:08Z
+**Status:** Proven
+
+## Request
+
+Complete the production hardening pass for Phase 2B:
+- fix silent explicit resolves so resolved tasks notify the user
+- make the watchdog cron use the canonical binary entrypoint
+- prove the new explicit-resolution paths with real execution evidence
+
+## What Changed
+
+### Silent resolve fix
+
+Implemented in `src/cli.js`:
+- `resolve` now emits a completion/failure notification when it closes a task
+- `run-worker` now emits a completion notification when worker exit code is `0`
+- notification outcome is persisted as a `notification` event and task notification fields
+
+### Canonical entrypoint
+
+Operational command standardized to:
+
+```bash
+node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog
+```
+
+Updated in:
+- `package.json`
+- `README.md`
+- `test/e2e.sh`
+- live OpenClaw cron payload
+
+## Automated Test Evidence
+
+Command run:
+
+```bash
+npm test
+```
+
+Observed result:
+
+```text
+# tests 66
+# pass 66
+# fail 0
+```
+
+This includes deterministic tests proving:
+- `resolve` emits a notification on explicit completion
+- `run-worker` success emits a notification on auto-resolve
+
+## Live Production Proof
+
+A temp DB was used so no persistent task junk was left behind.
+
+### 1. Explicit resolve path
+
+Commands run:
+
+```bash
+node bin/agent-follow-up.js register --db <temp> --id live-resolve-proof \
+  --title "Live resolve proof" --target telegram:8625301893 \
+  --observable-type manual --observable-id live-resolve-proof --interval 3
+
+node bin/agent-follow-up.js resolve --db <temp> --id live-resolve-proof \
+  --status completed --message "Live proof: explicit resolve path"
+```
+
+Observed event log:
+
+```json
+[
+  {
+    "event_type": "resolved",
+    "observed_status": "completed",
+    "message": "Live proof: explicit resolve path"
+  },
+  {
+    "event_type": "notification",
+    "observed_status": "completed",
+    "message": "emitter=ok: ... ✅ Sent via Telegram. Message ID: 1041"
+  }
+]
+```
+
+### 2. run-worker success path
+
+Commands run:
+
+```bash
+node bin/agent-follow-up.js register --db <temp> --id live-worker-proof \
+  --title "Live worker proof" --target telegram:8625301893 \
+  --observable-type manual --observable-id live-worker-proof --interval 3
+
+node bin/agent-follow-up.js run-worker --db <temp> --id live-worker-proof \
+  sh -c 'echo worker-proof-ok'
+```
+
+Observed event log:
+
+```json
+[
+  {
+    "event_type": "resolved",
+    "observed_status": "completed",
+    "message": "Task resolved as completed via worker success: sh"
+  },
+  {
+    "event_type": "notification",
+    "observed_status": "completed",
+    "message": "emitter=ok: ... ✅ Sent via Telegram. Message ID: 1042"
+  }
+]
+```
+
+## Live Cron Verification
+
+Observed current cron payload:
+
+```json
+{
+  "name": "agent-follow-up-watchdog",
+  "payload": {
+    "kind": "systemEvent",
+    "text": "node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog"
+  },
+  "state": {
+    "lastRunStatus": "ok"
+  }
+}
+```
+
+This confirms:
+- canonical binary entrypoint is active in production
+- cron is healthy (`lastRunStatus=ok`)
+
+## Observed Facts
+
+- Explicit resolve now sends a real Telegram notification (Message ID: 1041).
+- `run-worker` success now sends a real Telegram notification (Message ID: 1042).
+- The live cron job now points at the canonical binary watchdog command.
+- `npm test` is green at 66/66 after the hardening pass.
+
+## Inferences
+
+- The previously identified silent-resolve bug is fixed in the actual user-facing path, not just in tests.
+- The production cron path is now aligned with the documented/canonical entrypoint.
+- Phase 2B now has a deterministic, user-visible completion path for explicit resolve and worker success.
+
+## Residual Risk
+
+- Non-zero `run-worker` exits still do not auto-resolve as failed; current behavior is intentionally conservative.
+- No fresh external E2E proof was added for the live Telegram explicit-resolve path beyond the direct temp-DB production proof above.
+- Raw `test/e2e-proof/*` artifacts remain intentionally uncommitted.
+
+## Final Status
+
+**Proven** — silent resolves are fixed, the canonical cron entrypoint is live, and both explicit-resolution paths have real Telegram delivery proof.

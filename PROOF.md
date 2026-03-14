@@ -689,10 +689,51 @@ This confirms:
 
 ## Residual Risk
 
-- Non-zero `run-worker` exits still do not auto-resolve as failed; current behavior is intentionally conservative.
 - No fresh external E2E proof was added for the live Telegram explicit-resolve path beyond the direct temp-DB production proof above.
 - Raw `test/e2e-proof/*` artifacts remain intentionally uncommitted.
 
+## Additional Failure-Path Production Proof
+
+A targeted live failure-path proof was also run with a temp DB.
+
+Command shape:
+
+```bash
+node bin/agent-follow-up.js register --db <temp> --id live-worker-failure-proof \
+  --title "Live worker failure proof" --target telegram:8625301893 \
+  --observable-type manual --observable-id live-worker-failure-proof --interval 3
+
+node bin/agent-follow-up.js run-worker --db <temp> --id live-worker-failure-proof \
+  sh -c 'echo worker-failure-proof >&2; exit 17'
+```
+
+Observed:
+- command exit code preserved: `17`
+- resolved event:
+
+```json
+{
+  "event_type": "resolved",
+  "observed_status": "failed",
+  "message": "Task resolved as failed via worker exit 17: sh"
+}
+```
+
+- notification event:
+
+```json
+{
+  "event_type": "notification",
+  "observed_status": "failed",
+  "message": "emitter=ok: ... ✅ Sent via Telegram. Message ID: 1073"
+}
+```
+
+This proves the non-zero worker path now:
+- resolves as failed
+- includes exit code in the event message
+- sends a real Telegram notification
+
 ## Final Status
 
-**Proven** — silent resolves are fixed, the canonical cron entrypoint is live, and both explicit-resolution paths have real Telegram delivery proof.
+**Proven** — silent resolves are fixed, the canonical cron entrypoint is live, and both success and failure explicit-resolution paths have real Telegram delivery proof.

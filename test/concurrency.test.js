@@ -43,6 +43,37 @@ test('concurrent register attempts leave one task row', async () => {
   assert.equal(statuses.filter(s => s === 1).length, 1, 'exactly one should fail with exit 1');
 });
 
+test('concurrent checkin and resolve tolerate short write contention', async () => {
+  const { dbPath } = makeTempDb();
+  const db = dbModule.openDb(dbPath);
+  dbModule.insertTask(db, {
+    id: 'task-1',
+    title: 'Task 1',
+    notify_target: 'telegram:8625301893',
+    observable_type: 'manual',
+    observable_id: 'task-1',
+    checkin_every_minutes: 5,
+  });
+  db.close();
+
+  const checkin = Promise.resolve().then(() => spawnSync('node', [CLI,
+    'checkin', '--db', dbPath, '--id', 'task-1', '--message', 'progress'], { encoding: 'utf8' }));
+  const list = Promise.resolve().then(() => spawnSync('node', [CLI,
+    'list', '--active', '--db', dbPath, '--json'], { encoding: 'utf8' }));
+
+  const [checkinResult, listResult] = await Promise.all([checkin, list]);
+
+  assert.equal(checkinResult.status, 0, `checkin should succeed: ${checkinResult.stderr}`);
+  assert.equal(listResult.status, 0, `list should succeed: ${listResult.stderr}`);
+
+  const verifyDb = dbModule.openDb(dbPath);
+  const task = dbModule.getTask(verifyDb, 'task-1');
+  verifyDb.close();
+
+  assert.equal(task.checkin_count, 1);
+  assert.equal(task.last_checkin_message, 'progress');
+});
+
 test('watchdog processes multiple due tasks without corrupting state', () => {
   const { dir, dbPath } = makeTempDb();
   const markerA = path.join(dir, 'a.json');

@@ -32,9 +32,12 @@ function openDb(dbPath = DEFAULT_DB_PATH) {
 
   const db = new DatabaseSync(dbPath);
 
-  // Enable WAL for better concurrency
+  // Enable WAL for better concurrency and wait briefly on write contention
+  // instead of failing immediately with SQLITE_BUSY when multiple CLI actions
+  // overlap by a fraction of a second.
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA busy_timeout = 5000');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -56,6 +59,21 @@ function openDb(dbPath = DEFAULT_DB_PATH) {
       unknown_cycle_count INTEGER NOT NULL DEFAULT 0
     )
   `);
+
+  // Migrate: add checkin columns if this is an existing DB without them
+  const existingCols = db.prepare('PRAGMA table_info(tasks)').all().map(r => r.name);
+  if (!existingCols.includes('last_checkin_at')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN last_checkin_at TEXT');
+  }
+  if (!existingCols.includes('last_checkin_message')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN last_checkin_message TEXT');
+  }
+  if (!existingCols.includes('checkin_count')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN checkin_count INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!existingCols.includes('is_blocked')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0');
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS task_events (
@@ -178,6 +196,26 @@ function resolveTask(dbPath, id, opts = {}) {
 }
 
 /**
+ * Record a progress checkin for a task.
+ * Updates last_checkin_at, last_checkin_message, and increments checkin_count.
+ * Also resets the stale clock by updating last_observed_at.
+ */
+function updateTaskCheckin(dbOrPath, id, { message, timestamp, is_blocked = 0 }) {
+  return withDb(dbOrPath, (db) => {
+    const ts = timestamp || new Date().toISOString();
+    db.prepare(`
+      UPDATE tasks
+      SET last_checkin_at = ?,
+          last_checkin_message = ?,
+          checkin_count = COALESCE(checkin_count, 0) + 1,
+          last_observed_at = ?,
+          is_blocked = ?
+      WHERE id = ?
+    `).run(ts, message, ts, is_blocked ? 1 : 0, id);
+  });
+}
+
+/**
  * Append a task event row.
  */
 function insertEvent(dbOrPath, taskId, eventType, observedStatus, message) {
@@ -209,6 +247,7 @@ module.exports = {
   getAllTasks,
   listTasks,
   updateTaskObservation,
+  updateTaskCheckin,
   resolveTask,
   insertEvent,
   getTaskEvents

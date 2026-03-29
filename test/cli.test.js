@@ -241,3 +241,102 @@ test('doctor reports failures for missing cron job path in human and json form',
   assert.equal(parsed.ok, false);
   assert.equal(parsed.checks.find((c) => c.name === 'cron_jobs_readable').ok, false);
 });
+
+test('checkin records progress and sends notification', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
+
+  cli(['register', '--db', dbPath, '--id', 'ci-1', '--title', 'Checkin Task',
+    '--interval', '5', '--target', 'telegram:8625301893',
+    '--observable-type', 'manual', '--observable-id', 'ci-1-label']);
+
+  const result = cli(['checkin', '--db', dbPath, '--id', 'ci-1', '--message', 'committed X; next: Y'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+  assert.equal(result.status, 0, `checkin failed: ${result.stderr}`);
+  assert.match(result.stdout, /Checkin recorded for task 'ci-1'/);
+  assert.match(result.stdout, /Notification sent/);
+
+  const eventsOut = cli(['events', '--db', dbPath, '--id', 'ci-1']);
+  assert.match(eventsOut.stdout, /checkin/);
+  assert.match(eventsOut.stdout, /committed X; next: Y/);
+
+  const log = fs.readFileSync(logPath, 'utf8');
+  assert.match(log, /Progress: Checkin Task/);
+  assert.match(log, /committed X; next: Y/);
+});
+
+test('checkin of missing task exits 1', () => {
+  const { dbPath } = makeTempDb();
+  const result = cli(['checkin', '--db', dbPath, '--id', 'missing', '--message', 'done']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /not found/i);
+});
+
+test('checkin of resolved task exits 1', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
+
+  cli(['register', '--db', dbPath, '--id', 'ci-resolved-1', '--title', 'Already Done',
+    '--interval', '5', '--target', 'telegram:8625301893',
+    '--observable-type', 'manual', '--observable-id', 'ci-resolved-1-label']);
+  cli(['resolve', '--db', dbPath, '--id', 'ci-resolved-1', '--status', 'completed'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+
+  const result = cli(['checkin', '--db', dbPath, '--id', 'ci-resolved-1', '--message', 'late note']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /already resolved/i);
+});
+
+test('checkin with --blocked marks task as blocked and sends [BLOCKED] notification', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
+
+  cli(['register', '--db', dbPath, '--id', 'ci-blocked-1', '--title', 'Blocked Task',
+    '--interval', '5', '--target', 'telegram:8625301893',
+    '--observable-type', 'manual', '--observable-id', 'ci-blocked-1-label']);
+
+  const result = cli(['checkin', '--db', dbPath, '--id', 'ci-blocked-1',
+    '--message', 'BLOCKED: need X to proceed. Tried: Y.', '--blocked'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+  assert.equal(result.status, 0, `checkin --blocked failed: ${result.stderr}`);
+  assert.match(result.stdout, /Checkin recorded/);
+
+  const log = fs.readFileSync(logPath, 'utf8');
+  assert.match(log, /\[BLOCKED\]/);
+
+  const eventsOut = cli(['events', '--db', dbPath, '--id', 'ci-blocked-1']);
+  assert.match(eventsOut.stdout, /checkin/);
+});
+
+test('checkin without --blocked on a previously blocked task clears the blocked state', () => {
+  const { dir, dbPath } = makeTempDb();
+  const logPath = path.join(dir, 'openclaw.log');
+  makeFakeOpenClaw(dir, logPath);
+
+  cli(['register', '--db', dbPath, '--id', 'ci-unblock-1', '--title', 'Unblock Task',
+    '--interval', '5', '--target', 'telegram:8625301893',
+    '--observable-type', 'manual', '--observable-id', 'ci-unblock-1-label']);
+
+  cli(['checkin', '--db', dbPath, '--id', 'ci-unblock-1',
+    '--message', 'BLOCKED: waiting on something.', '--blocked'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+
+  cli(['checkin', '--db', dbPath, '--id', 'ci-unblock-1',
+    '--message', 'unblocked: resolved it.'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
+  });
+
+  const listOut = cli(['list', '--active', '--json', '--db', dbPath]);
+  assert.equal(listOut.status, 0, `list failed: ${listOut.stderr}`);
+  const tasks = JSON.parse(listOut.stdout);
+  const task = tasks.find(t => t.id === 'ci-unblock-1');
+  assert.ok(task, 'task not found in list output');
+  assert.equal(task.is_blocked, 0);
+});

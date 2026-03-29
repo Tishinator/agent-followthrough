@@ -48,6 +48,17 @@ function sendNotification(notifyTarget, message, opts = {}) {
 }
 
 /**
+ * Format a millisecond duration as "Xh Ym" or "Ym".
+ */
+function formatDuration(ms) {
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+/**
  * Build the notification message for a given task and status.
  */
 function buildMessage(task, status) {
@@ -66,8 +77,28 @@ function buildMessage(task, status) {
   if (status === 'stale') {
     return `[Agent Follow-Up] Task stale: ${task.title}.\nNo updates received.\nLast observed: ${task.last_observed_at || 'never'}.\nNext check in: ${interval}m.`;
   }
-  // running / reminder
-  return `[Agent Follow-Up] Task still running: ${task.title}.\nObserved status: running.\nLast observed: ${task.last_observed_at || now}.\nNext update cadence: ${interval}m.`;
+  if (status === 'checkin') {
+    if (task.is_blocked) {
+      return `[Agent Follow-Up] [BLOCKED] ${task.title}.\n${task.last_checkin_message}`;
+    }
+    return `[Agent Follow-Up] Progress: ${task.title}.\n${task.last_checkin_message}`;
+  }
+  // running — include elapsed time and last checkin context
+  const elapsedMs = task.started_at ? (Date.now() - new Date(task.started_at).getTime()) : null;
+  const elapsedStr = elapsedMs !== null ? formatDuration(elapsedMs) : 'unknown';
+
+  if (task.is_blocked) {
+    const checkinAgeStr = task.last_checkin_at ? formatDuration(Date.now() - new Date(task.last_checkin_at).getTime()) : 'unknown';
+    return `[Agent Follow-Up] [BLOCKED] ${task.title}.\nBlocked (${checkinAgeStr} ago): ${task.last_checkin_message}.\nRunning for: ${elapsedStr}. Next check in: ${interval}m.`;
+  }
+
+  if (!task.last_checkin_at || !task.last_checkin_message) {
+    return `[Agent Follow-Up] Task still running: ${task.title}.\nRunning for: ${elapsedStr}. No progress logged yet.\nNext update cadence: ${interval}m.`;
+  }
+
+  const checkinAgeMs = Date.now() - new Date(task.last_checkin_at).getTime();
+  const checkinAgeStr = formatDuration(checkinAgeMs);
+  return `[Agent Follow-Up] Task still running: ${task.title}.\nRunning for: ${elapsedStr}. Last progress (${checkinAgeStr} ago): ${task.last_checkin_message}.\nNext update cadence: ${interval}m.`;
 }
 
-module.exports = { sendNotification, buildMessage, parseTarget };
+module.exports = { sendNotification, buildMessage, parseTarget, formatDuration };

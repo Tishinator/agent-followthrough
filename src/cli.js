@@ -10,6 +10,7 @@ const {
   getAllTasks,
   getActiveTasks,
   updateTaskObservation,
+  updateTaskCheckin,
   insertEvent,
   getTaskEvents
 } = require('./db');
@@ -147,6 +148,47 @@ function createProgram() {
         console.log(`Resolved task '${opts.id}' as ${opts.status}.`);
         console.log(`Completion notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
         console.log(JSON.stringify(getTask(db, opts.id), null, 2));
+      } finally {
+        db.close();
+      }
+    });
+
+  program
+    .command('checkin')
+    .description('Log a progress milestone for a running task and send a Telegram update')
+    .requiredOption('--id <id>', 'Task identifier')
+    .requiredOption('--message <msg>', 'Progress note (what was done / what is next)')
+    .option('--blocked', 'Mark this task as blocked on the stated issue', false)
+    .option('--db <path>', 'Override SQLite database path')
+    .action((opts) => {
+      const db = openDb(opts.db);
+      try {
+        const task = getTask(db, opts.id);
+        if (!task) {
+          console.error(`Error: task '${opts.id}' not found.`);
+          process.exit(1);
+        }
+        if (task.resolution_status) {
+          console.error(`Error: task '${opts.id}' is already resolved as '${task.resolution_status}'.`);
+          process.exit(1);
+        }
+
+        const now = new Date().toISOString();
+        updateTaskCheckin(db, opts.id, { message: opts.message, timestamp: now, is_blocked: opts.blocked });
+        insertEvent(db, opts.id, 'checkin', 'running', opts.message);
+
+        const updated = getTask(db, opts.id);
+        const msg = emitter.buildMessage(updated, 'checkin');
+        const emitResult = emitter.sendNotification(task.notify_target, msg);
+        insertEvent(db, opts.id, 'notification', 'running',
+          `emitter=${emitResult.success ? 'ok' : 'failed'}: ${emitResult.output}`);
+        updateTaskObservation(db, opts.id, {
+          last_notification_sent_at: now,
+          last_notification_status: emitResult.success ? 'sent' : 'failed'
+        });
+
+        console.log(`Checkin recorded for task '${opts.id}'.`);
+        console.log(`Notification ${emitResult.success ? 'sent' : 'failed'}: ${emitResult.output}`);
       } finally {
         db.close();
       }

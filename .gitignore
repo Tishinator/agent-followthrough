@@ -7,3 +7,10 @@ data/*.db-shm
 *.db-shm
 npm-debug.log
 .npm
+tmp/
+pdf/
+.env
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

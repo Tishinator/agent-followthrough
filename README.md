@@ -1,59 +1,105 @@
-# Agent Follow-Up
+# agent-followthrough
 
-Planning project for a reliable background-task follow-up/check-in system for OpenClaw agents.
+Proactive task follow-up system for OpenClaw agents, backed by SQLite and cron.
 
-This project contains the initial SLC-style planning package for review:
+Agents register tasks before launching background work. A watchdog runs on a cron schedule, checks observable state (marker files, session transcripts, or manual signals), and sends Telegram notifications when tasks go stale, complete, or fail. Workers can auto-resolve tasks on exit via `run-worker`.
 
-- Software / Program Plan
-- Requirements
-- Architecture
-- Design
-- Verification & Validation Plan
+**Requires Node.js ≥ 22.5.0** (uses `node:sqlite`).
 
-Generated review PDFs are placed in `pdf/`.
+## Install
+
+```sh
+npm install
+node bin/agent-follow-up.js init-db
+```
+
+The default database path is `./data/tasks.db`. All commands accept `--db <path>` to override.
+
+## Commands
+
+### `register`
+Register a new task for follow-up.
+
+```sh
+agent-follow-up register \
+  --id <id> \
+  --title <title> \
+  --target telegram:<chat-id> \
+  --observable-type marker|session|manual \
+  --observable-id <path-or-id> \
+  [--interval <minutes>]   # default: 3
+  [--session <uuid>]
+```
+
+### `resolve`
+Mark a task as completed or failed.
+
+```sh
+agent-follow-up resolve --id <id> --status completed|failed [--message <msg>]
+```
+
+### `checkin`
+Log a progress milestone for a running task and send a Telegram update.
+
+```sh
+agent-follow-up checkin --id <id> --message <msg> [--blocked]
+```
+
+### `run-worker`
+Run a worker subprocess and auto-resolve the task on exit.
+
+```sh
+agent-follow-up run-worker --id <id> -- <command> [args...]
+```
+
+- Exit 0 → resolved as `completed`, notification sent
+- Non-zero exit → resolved as `failed`, exit code included in notification
+
+### `watchdog`
+Run one watchdog cycle. Intended to be called by cron.
+
+```sh
+agent-follow-up watchdog [--sessions-path <path>]
+```
+
+Checks all active tasks against their observable state and sends notifications for stale, completed, or failed tasks.
+
+### `status`
+Show a human-readable or JSON summary of active and recently resolved tasks.
+
+```sh
+agent-follow-up status [--json]
+```
+
+### `doctor`
+Run health and sanity checks: DB reachability, OpenClaw cron registration, watchdog payload alignment, and stale/unknown task warnings.
+
+```sh
+agent-follow-up doctor [--json] [--cron-jobs-path <path>]
+```
+
+### `list`
+List tasks.
+
+```sh
+agent-follow-up list [--active] [--json]
+```
+
+### `events`
+Show the event log for a task.
+
+```sh
+agent-follow-up events --id <id> [--json]
+```
+
+## Observable types
+
+| Type | `--observable-id` | How watchdog checks it |
+|---|---|---|
+| `marker` | Path to a marker JSON file | Reads `status` field from file |
+| `session` | Claude session UUID | Inspects `sessions.json` for activity |
+| `manual` | Arbitrary label | Never auto-resolves; relies on `resolve` or `checkin` |
 
 ## CI
 
-This repo uses Gitea Actions with the local `linux` runner.
-
-Current blocking job:
-- `node-test` — deterministic unit/integration suite via `npm test`
-
-Non-blocking internal proof:
-- live/environment-dependent E2E validation remains a required internal proof step for Larry when appropriate, but is not a merge-blocking CI gate
-
-## Session worker integration
-
-Phase 2B adds a minimal launcher-side seam for session-backed tasks:
-
-```sh
-node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js run-worker --db ./data/tasks.db --id my-task -- node ./worker.js
-```
-
-Behavior:
-- runs the worker command deterministically
-- if the worker exits `0`, the task is auto-resolved as `completed` and immediately sends a notification
-- if the worker exits non-zero, the task is auto-resolved as `failed`, the event message includes the exit code, and it immediately sends a notification
-
-This closes both terminal paths without inferring completion from session transcripts or silence.
-
-## Operator commands
-
-Quick operator-facing surfaces:
-
-```sh
-node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js status
-node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js status --json
-node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js doctor
-```
-
-- `status` summarizes active tasks by state, recent resolved tasks, tasks needing attention, and the DB path in use.
-- `doctor` checks DB reachability, OpenClaw cron registration, canonical watchdog payload alignment, and warns on unresolved stale/unknown tasks.
-
-## Canonical watchdog entrypoint
-
-Use the binary entrypoint for operational automation / cron:
-
-```sh
-node /home/tish/projects/agent-follow-up/bin/agent-follow-up.js watchdog
-```
+GitHub Actions runs the full test suite on push to `master` and on pull requests.

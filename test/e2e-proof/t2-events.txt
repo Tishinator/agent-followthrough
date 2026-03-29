@@ -1,9 +1,0 @@
-42|e2e-completion-1773442345|registered|running|Registered: type=marker observable=/tmp/e2e-completion-1773442345.marker.json target=telegram:8625301893|2026-03-13T22:52:25.372Z
-46|e2e-completion-1773442345|observation|running||2026-03-13T22:52:25.419Z
-47|e2e-completion-1773442345|notification|running|emitter=ok: [telegram] autoSelectFamily=true (default-node22)
-[telegram] dnsResultOrder=ipv4first (default-node22)
-✅ Sent via Telegram. Message ID: 544|2026-03-13T22:52:30.690Z
-51|e2e-completion-1773442345|resolution|completed|Task resolved as completed.|2026-03-13T22:52:30.741Z
-52|e2e-completion-1773442345|notification|completed|emitter=ok: [telegram] autoSelectFamily=true (default-node22)
-[telegram] dnsResultOrder=ipv4first (default-node22)
-✅ Sent via Telegram. Message ID: 546|2026-03-13T22:52:35.774Z

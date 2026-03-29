@@ -1,3 +1,0 @@
-[watchdog] 2026-03-14T02:27:46.105Z processed 2 task(s)
-  task=e2e-sess-1 status=unknown notified=false emitOk=n/a
-  task=e2e-marker-1 status=completed notified=true emitOk=true
